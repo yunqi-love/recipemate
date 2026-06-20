@@ -66,3 +66,36 @@ export function groupShoppingItemsByRecipe() {
 
   return groups;
 }
+
+export function groupShoppingItemsByIngredient() {
+  const groups = {};
+  const allRecipes = [...state.recipes, ...state.customRecipes];
+
+  for (const item of state.shopItems) {
+    const name = item.name;
+    if (!groups[name]) groups[name] = { items: [], recipes: new Set() };
+    groups[name].items.push(item);
+    const recipe = allRecipes.find(r => r.id === item.recipe_id);
+    if (recipe) groups[name].recipes.add(recipe.title);
+  }
+
+  return groups;
+}
+
+export function copyShoppingListText() {
+  const groups = groupShoppingItemsByIngredient();
+  let text = '🛒 购物清单\n\n';
+  for (const [name, group] of Object.entries(groups)) {
+    const recipes = [...group.recipes];
+    text += `□ ${name}`;
+    if (recipes.length > 0) text += `（${recipes.join('、')}）`;
+    text += '\n';
+  }
+  if (!Object.keys(groups).length) text += '（空）\n';
+  navigator.clipboard.writeText(text).then(() => {
+    toast('📋 已复制购物清单');
+  }).catch(() => {
+    toast('❌ 复制失败，请手动复制');
+  });
+  return text;
+}

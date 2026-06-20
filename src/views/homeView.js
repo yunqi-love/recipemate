@@ -80,6 +80,13 @@ export function renderHome() {
       </div>
     </div>
 
+    <!-- Cooking Stats -->
+    <div style="padding:12px 16px 0" id="homeStatsArea">
+      ${(Object.keys(state.cookedMap || {}).length > 0) ? `
+      <div class="section-title">📊 我的厨房</div>
+      <div id="homeCookingStats"></div>` : ''}
+    </div>
+
     <!-- Recent cooked -->
     ${recentCooked.length > 0 ? `
     <div style="padding:12px 16px 0">

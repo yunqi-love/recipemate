@@ -23,7 +23,7 @@ import {
   toggleFav, uploadImage
 } from './stores/recipeStore.js';
 import { doMarkCooked, incrementCooked, decreaseCooked, getJournalForRecipe, deleteCookingJournal } from './stores/userStateStore.js';
-import { addToShoppingList, toggleShopItem, removeShopItem, clearShopItems, clearCheckedShopItems, groupShoppingItemsByRecipe } from './stores/shoppingStore.js';
+import { addToShoppingList, toggleShopItem, removeShopItem, clearShopItems, clearCheckedShopItems, groupShoppingItemsByRecipe, copyShoppingListText } from './stores/shoppingStore.js';
 
 // Views
 import { renderAuth } from './views/authView.js';
@@ -55,6 +55,11 @@ function render() {
 
   if (state.currentView === 'home') {
     app.innerHTML = renderHome();
+    // Defer rendering cooking stats after DOM is ready
+    setTimeout(() => {
+      const statsEl = document.getElementById('homeCookingStats');
+      if (statsEl) statsEl.innerHTML = renderCookingStatsCard();
+    }, 10);
     return;
   }
 
@@ -601,6 +606,27 @@ async function doClearCheckedShop() {
   if (state.currentView === 'shop') render();
 }
 
+function setShopViewMode(mode) {
+  state.shopViewMode = mode;
+  if (state.currentView === 'shop') render();
+}
+
+function copyShoppingList() {
+  copyShoppingListText();
+}
+
+async function toggleIngredientGroup(name, toChecked) {
+  const items = state.shopItems.filter(s => s.name === name);
+  for (const item of items) {
+    if (item.checked !== toChecked) {
+      await toggleShopItem(item.id);
+    }
+  }
+  if (state.currentView === 'shop') render();
+}
+
+// ── Cooking Journal Delete ──
+
 // ── Quick Scenario Filter ──
 function applyQuickScenarioFilter(scene) {
   state.recipeFilters.quick = scene;
@@ -802,47 +828,130 @@ async function doAuth() {
 }
 
 // ── API Search ──
-async function apiSearch() {
-  const kw = document.getElementById('searchInput')?.value?.trim();
-  if (!kw) { toast('请先在搜索框输入关键词'); return; }
+// ── Unified Search (replaces old apiSearch) ──
+async function performUnifiedSearch(kw) {
+  if (!kw || !kw.trim()) { toast('请输入关键词'); return; }
+  kw = kw.trim();
+  state.searchKeyword = kw;
+  state.isSearchMode = true;
 
   const app = document.getElementById('app');
   app.innerHTML = `<div class="content">
-    <div class="back-btn" onclick="App.navTo('recipes')">‹ 返回</div>
-    <div class="section-title">🌐 搜索: "${esc(kw)}"</div>
-    <div class="loading">🔍 正在搜索中文菜谱库...</div>
+    <div class="back-btn" onclick="App.exitSearchMode()">‹ 返回菜谱</div>
+    <div class="section-title">🔍 搜索: "${esc(kw)}"</div>
+    <div class="loading">正在搜索菜谱库...</div>
   </div>`;
 
-  const { results, source } = await searchAllSources(kw);
+  // Search local + my recipes simultaneously
+  const [localResults, apiResults] = await Promise.all([
+    searchLocalChineseRecipes(kw),
+    searchAllSources(kw)  // ProjKitchen + optional TheMealDB
+  ]);
 
-  if (results.length === 0) {
-    app.innerHTML = `<div class="content">
-      <div class="back-btn" onclick="App.navTo('recipes')">‹ 返回</div>
-      <div class="section-title">🌐 搜索: "${esc(kw)}"</div>
-      <div class="empty">没有找到 😢<br>试试其他关键词，或到设置里配置 AI Key 后使用 AI 智能搜索</div>
-    </div>`;
+  // Merge my recipes (search by keyword in customRecipes)
+  const myMatches = state.customRecipes.filter(r =>
+    r.title.toLowerCase().includes(kw.toLowerCase()) ||
+    (r.tags || []).some(t => t.toLowerCase().includes(kw.toLowerCase())) ||
+    (r.ingredients || []).some(i => (typeof i === 'string' ? i : i.name || '').toLowerCase().includes(kw.toLowerCase()))
+  );
+
+  // Merge and dedupe: prefer my recipes over local over api
+  const seen = new Set();
+  const merged = [];
+  for (const r of [...myMatches, ...localResults, ...(apiResults.results || [])]) {
+    const key = r.title?.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(r);
+  }
+
+  // Score and sort
+  merged.sort((a, b) => searchScore(b, kw) - searchScore(a, kw));
+
+  // Save search history
+  saveSearchHistory(kw);
+
+  state.searchResults = merged;
+  state.lastSearchSourceSummary = buildSourceSummary(merged);
+
+  if (merged.length === 0) {
+    app.innerHTML = renderSearchEmpty(kw);
     return;
   }
 
-  state.apiResults = results;
-  const srcLabel = source === 'local_chinese' ? '🏠 本地中文菜谱' :
-    source === 'projkitchen' ? '🥘 ProjKitchen（中文补充）' :
-    source === 'themealdb' ? '🌐 TheMealDB（英文兜底）' : '🌐 在线';
+  state.apiResults = merged;
+  renderSearchResultsPage(kw, merged);
+}
+
+function searchScore(r, kw) {
+  let score = 0;
+  const t = (r.title || '').toLowerCase();
+  if (t === kw.toLowerCase()) score += 100;
+  else if (t.includes(kw.toLowerCase())) score += 50;
+  if ((r.tags || []).some(t => t.toLowerCase().includes(kw.toLowerCase()))) score += 20;
+  if ((r.ingredients || []).some(i => (typeof i === 'string' ? i : i.name || '').toLowerCase().includes(kw.toLowerCase()))) score += 15;
+  if ((r.description || '').toLowerCase().includes(kw.toLowerCase())) score += 5;
+  // Boost my recipes
+  if (r.user_id) score += 10;
+  return score;
+}
+
+function buildSourceSummary(results) {
+  const sources = new Set();
+  results.forEach(r => {
+    if (r.user_id) sources.add('我的菜谱');
+    else if (r.source === 'local_chinese' || r.id?.startsWith('pk_')) sources.add('本地中文库');
+    else sources.add('在线');
+  });
+  return [...sources].join('、');
+}
+
+function renderSearchEmpty(kw) {
+  saveSearchHistory(kw); // Still save for history
+  return `<div class="content">
+    <div class="back-btn" onclick="App.exitSearchMode()">‹ 返回菜谱</div>
+    <div class="empty-state">
+      <div class="empty-state-icon">🔍</div>
+      <div class="empty-state-title">没有找到"${esc(kw)}"</div>
+      <div class="empty-state-desc">试试搜索这些热门食材或标签：</div>
+      <div class="search-suggestion-chips">
+        ${['鸡蛋','土豆','番茄','豆腐','快手菜','下饭菜','早餐','减脂'].map(t =>
+          `<span class="filter-chip" onclick="App.performUnifiedSearch('${t}')">${t}</span>`
+        ).join('')}
+      </div>
+    </div>
+  </div>`;
+}
+
+function renderSearchResultsPage(kw, results) {
+  const summary = state.lastSearchSourceSummary || '';
+  const app = document.getElementById('app');
 
   let html = `<div class="content">
-    <div class="back-btn" onclick="App.navTo('recipes')">‹ 返回</div>
-    <div class="section-title">${srcLabel}: "${esc(kw)}" · ${results.length} 个</div>`;
+    <div class="back-btn" onclick="App.exitSearchMode()">‹ 返回菜谱</div>
+    <div class="section-title">🔍 "${esc(kw)}" · ${results.length} 道</div>
+    ${summary ? `<div style="font-size:11px;color:var(--text-muted);margin:-8px 0 12px">来自：${summary}</div>` : ''}
+    <!-- Quick sort chips -->
+    <div class="quick-filter-scroll" style="padding:0 0 8px 0;margin-bottom:4px">
+      <span class="filter-chip active" onclick="App.sortSearchResults('relevance')">最相关</span>
+      <span class="filter-chip" onclick="App.sortSearchResults('fastest')">最快手</span>
+      <span class="filter-chip" onclick="App.sortSearchResults('easiest')">最简单</span>
+      <span class="filter-chip" onclick="App.sortSearchResults('cooked')">做过优先</span>
+    </div>`;
 
   results.forEach(r => {
+    const srcTag = r.user_id ? '我的' : r.source === 'local_chinese' || (r.id || '').startsWith('pk_') ? '本地' : '在线';
     html += `<div class="recipe-card" onclick="App.showApiDetail('${r.id}')">
-      ${r.image_url ? `<img class="card-img" src="${r.image_url}" loading="lazy">` : ''}
-      <div class="api-badge">${srcLabel}</div>
+      ${r.image_url ? `<img class="card-img" src="${r.image_url}" loading="lazy" onerror="this.style.display='none'">` : ''}
       <div class="card-body">
-        <div class="card-row"><span class="card-title">${esc(r.title)}</span></div>
+        <div class="card-row">
+          <span class="card-title">${esc(r.title)}</span>
+          <span class="card-source-tag src-${srcTag}">${srcTag}</span>
+        </div>
         <div class="card-desc">${esc(r.description || '')}</div>
         <div class="card-meta">
           <span class="badge ${r.difficulty === '简单' ? 'badge-easy' : r.difficulty === '困难' ? 'badge-hard' : 'badge-medium'}">${esc(r.difficulty || '中等')}</span>
-          <span style="font-size:12px;color:#999">⏱ ${r.cook_time || 20}分钟</span>
+          <span style="font-size:12px;color:var(--text-muted)">⏱ ${r.cook_time || 20}分</span>
           ${(r.tags || []).slice(0, 2).map(t => `<span class="tag">${esc(t)}</span>`).join('')}
         </div>
       </div>
@@ -851,6 +960,64 @@ async function apiSearch() {
 
   html += '</div>';
   app.innerHTML = html;
+}
+
+function sortSearchResults(mode) {
+  const results = state.searchResults || [];
+  if (!results.length) return;
+  switch (mode) {
+    case 'fastest': results.sort((a, b) => (a.cook_time || 30) - (b.cook_time || 30)); break;
+    case 'easiest': { const o = {'简单':0,'中等':1,'困难':2}; results.sort((a,b) => (o[a.difficulty]||1) - (o[b.difficulty]||1)); break; }
+    case 'cooked': results.sort((a,b) => (state.cookedMap[b.id]?.count||0) - (state.cookedMap[a.id]?.count||0)); break;
+    default: results.sort((a,b) => searchScore(b, state.searchKeyword) - searchScore(a, state.searchKeyword)); break;
+  }
+  renderSearchResultsPage(state.searchKeyword, results);
+  // Update chip states
+  document.querySelectorAll('.quick-filter-scroll .filter-chip').forEach(c => c.classList.remove('active'));
+  const target = document.querySelector(`.quick-filter-scroll .filter-chip[onclick*="${mode}"]`);
+  if (target) target.classList.add('active');
+}
+
+function exitSearchMode() {
+  state.isSearchMode = false;
+  state.searchKeyword = '';
+  state.searchResults = null;
+  state.currentView = 'recipes';
+  render();
+}
+
+function showSearchSuggestions() {
+  // Just render to show history chips — no action needed
+  if (!state.searchKeyword) render();
+}
+
+// Search submit handler (Enter key / search icon click)
+function handleSearchSubmit(event) {
+  if (event) event.preventDefault();
+  const kw = document.getElementById('searchInput')?.value?.trim() || state.searchKeyword || '';
+  if (!kw) return;
+  state.currentView = 'search';
+  performUnifiedSearch(kw);
+}
+
+// ── Search History (localStorage) ──
+function getSearchHistory() {
+  try { return JSON.parse(localStorage.getItem('rm_search_history') || '[]'); } catch (e) { return []; }
+}
+function saveSearchHistory(kw) {
+  let h = getSearchHistory();
+  h = [kw, ...h.filter(x => x !== kw)].slice(0, 10);
+  localStorage.setItem('rm_search_history', JSON.stringify(h));
+}
+function clearSearchHistory() {
+  localStorage.removeItem('rm_search_history');
+  toast('已清空搜索历史');
+}
+
+// Legacy: keep old apiSearch for backward compat
+function apiSearch() {
+  const kw = document.getElementById('searchInput')?.value?.trim() || state.searchKeyword || '';
+  if (kw) performUnifiedSearch(kw);
 }
 
 async function showApiDetail(id) {
@@ -1637,10 +1804,10 @@ const App = {
   incrementCooked: doIncrementCooked, decreaseCooked: doDecreaseCooked,
   // Shopping
   shopClick, toggleShop, removeShop, clearShop,
-  doClearCheckedShop,
+  doClearCheckedShop, setShopViewMode, copyShoppingList, toggleIngredientGroup,
   // API Search
   apiSearch, showApiDetail,
-  handleSearchInput, clearSearch,
+  handleSearchInput, clearSearch, showSearchSuggestions,
   // AI Save
   aiSaveRecipe,
   saveApiRecipeToMyRecipes,
@@ -1656,6 +1823,11 @@ const App = {
   applyQuickScenarioFilter,
   // Cooking Mode
   openCookingMode, closeCookingMode, nextCookingStep, prevCookingStep,
+  // Unified Search
+  performUnifiedSearch, handleSearchSubmit, exitSearchMode, sortSearchResults,
+  getSearchHistory, clearSearchHistory,
+  // Cooking Stats
+  getCookingStats, renderCookingStatsCard,
   // Journal
   deleteJournalEntry,
   // UX Helpers
@@ -1666,6 +1838,81 @@ window.App = App;
 // Expose filter functions for recipesView.js to use without circular imports
 App._applyFilters = applyRecipeFilters;
 App._getActiveFilterSummary = getActiveFilterSummary;
+
+// ── Cooking Stats (local calculation, no backend needed) ──
+function getCookingStats() {
+  const now = new Date();
+  const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay()); weekStart.setHours(0,0,0,0);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  let weekCount = 0, monthCount = 0;
+  const cookedSet = new Set();
+  const allRecipes = [...state.recipes, ...state.customRecipes];
+  const journalDays = new Set();
+
+  for (const [rid, info] of Object.entries(state.cookedMap)) {
+    const count = info.count || 0;
+    const last = info.last ? new Date(info.last) : null;
+    if (count > 0) cookedSet.add(rid);
+    if (last) {
+      if (last >= weekStart) weekCount++;
+      if (last >= monthStart) monthCount++;
+      journalDays.add(last.toDateString());
+    }
+  }
+
+  // Mastery count
+  let masteryCount = 0;
+  for (const rid of cookedSet) {
+    if ((state.cookedMap[rid]?.count || 0) >= 6) masteryCount++;
+  }
+
+  // Last cooked date
+  let lastCookedDate = null;
+  for (const info of Object.values(state.cookedMap)) {
+    if (info.last && (!lastCookedDate || new Date(info.last) > lastCookedDate)) {
+      lastCookedDate = new Date(info.last);
+    }
+  }
+
+  return {
+    totalDifferent: cookedSet.size,
+    weekCount,
+    monthCount,
+    masteryCount,
+    lastCookedDate,
+    totalRecipes: allRecipes.length,
+    journalCount: state.journals.length
+  };
+}
+
+function renderCookingStatsCard() {
+  const stats = getCookingStats();
+  if (stats.totalDifferent === 0) {
+    return `<div class="empty-state" style="padding:20px 12px">
+      <div class="empty-state-desc">做完第一道菜后，这里会出现你的做饭统计</div>
+    </div>`;
+  }
+  const lastText = stats.lastCookedDate ? formatRelativeDate(stats.lastCookedDate) : '很久以前';
+  return `<div class="stats-card">
+    <div class="stats-row">
+      <div class="stats-item"><span class="stats-num">${stats.weekCount}</span><span class="stats-label">本周做饭</span></div>
+      <div class="stats-item"><span class="stats-num">${stats.monthCount}</span><span class="stats-label">本月做饭</span></div>
+      <div class="stats-item"><span class="stats-num">${stats.totalDifferent}</span><span class="stats-label">不同菜谱</span></div>
+      <div class="stats-item"><span class="stats-num">${stats.masteryCount}</span><span class="stats-label">拿手菜</span></div>
+    </div>
+    <div class="stats-footer">最近一次下厨：${lastText}</div>
+  </div>`;
+}
+
+function formatRelativeDate(d) {
+  const days = Math.floor((Date.now() - d.getTime()) / 86400000);
+  if (days === 0) return '今天';
+  if (days === 1) return '昨天';
+  if (days <= 7) return `${days}天前`;
+  if (days <= 30) return `${Math.floor(days/7)}周前`;
+  return d.toLocaleDateString();
+}
 
 // ── Initialize ──
 async function init() {

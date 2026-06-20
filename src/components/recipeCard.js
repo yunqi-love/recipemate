@@ -6,11 +6,13 @@ export function renderCard(r) {
   const diffCls = r.difficulty === '简单' ? 'badge-easy'
     : r.difficulty === '中等' ? 'badge-medium' : 'badge-hard';
   const favIcon = state.favorites.has(r.id) ? '❤️' : '🤍';
-  const source = r.isApi
-    ? `<div class="api-badge">${r.source === 'projkitchen' ? '🥘 ProjKitchen' : r.source === 'themealdb' ? '🌐 TheMealDB' : '🌐 在线'}</div>`
-    : '';
-  const userBadge = r.user_id
-    ? `<div class="api-badge" style="right:8px;left:auto;background:#4CAF50">我的</div>` : '';
+  // Source tag: inline, not absolute — won't cover title
+  let sourceTag = '';
+  if (r.isApi) {
+    sourceTag = `<span class="card-source-tag src-api">${r.source === 'projkitchen' ? '本地' : r.source === 'themealdb' ? '英文' : '在线'}</span>`;
+  } else if (r.user_id) {
+    sourceTag = '<span class="card-source-tag src-mine">我的</span>';
+  }
 
   // Image or placeholder
   const imgHTML = r.image_url
@@ -35,10 +37,10 @@ export function renderCard(r) {
 
   return `<div class="recipe-card" onclick="App.showDetail('${r.id}',${!!r.isApi})">
     ${imgHTML}
-    ${source}${userBadge}
     <div class="card-body">
       <div class="card-row">
         <span class="card-title">${esc(r.title)}</span>
+        ${sourceTag}
         <span class="card-fav" onclick="event.stopPropagation();App.favClick('${r.id}')">${favIcon}</span>
       </div>
       ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ''}

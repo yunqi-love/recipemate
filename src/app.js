@@ -56,7 +56,13 @@ export const state = {
   },
   showFilterPanel: false,
   isFilterSheetOpen: false,
-  draftRecipeFilters: null
+  draftRecipeFilters: null,
+  // Search
+  isSearchMode: false,
+  searchResults: null,
+  lastSearchSourceSummary: '',
+  // Shopping
+  shopViewMode: 'recipe'
 };
 
 export function getProficiency(count) {

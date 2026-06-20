@@ -96,11 +96,14 @@ export function showDetail(id, isApi) {
       ${isCustom ? `<button class="btn btn-outline btn-block" style="margin-top:4px;border-color:#F44336;color:#F44336" onclick="App.deleteCustomRecipe('${id}')">🗑 删除菜谱</button>` : ''}
       <div class="section-title">📸 打卡记录（${recipeJournals.length}次）</div>
       ${recipeJournals.length === 0 ? '<div class="empty" style="padding:20px">还没有打卡记录<br>做完菜点上面按钮拍照记录吧~</div>' : ''}
-      ${recipeJournals.map(j => `
+      ${recipeJournals.map((j, idx) => `
         <div class="journal-entry">
           <div class="j-header">
-            <div class="j-date">🕐 ${new Date(j.cooked_at).toLocaleString()}</div>
-            <button class="journal-delete-btn" onclick="event.stopPropagation();App.deleteJournalEntry('${j.id}')" title="删除记录">🗑</button>
+            <div class="j-date">🕐 ${new Date(j.cooked_at).toLocaleString()} · 第${recipeJournals.length - idx}次做</div>
+            <div style="display:flex;gap:4px">
+              <button class="journal-action-btn" onclick="event.stopPropagation();App.showDetail('${id}',false)" title="再做一次">🔄</button>
+              <button class="journal-delete-btn" onclick="event.stopPropagation();App.deleteJournalEntry('${j.id}')" title="删除">🗑</button>
+            </div>
           </div>
           ${j.photo_url ? `<img src="${j.photo_url}" alt="成品照" loading="lazy">` : ''}
           ${j.notes ? `<div class="j-notes">💬 ${escapeHtml(j.notes)}</div>` : ''}

@@ -1,10 +1,6 @@
-// RecipeMate — Recipes List View (Modern filter system)
+// RecipeMate — Recipes List View (unified search)
 import { state, getProficiency } from '../app.js';
 import { renderCard, escapeHtml } from '../components/recipeCard.js';
-
-// Import filter function dynamically resolved at call time
-// (circular dependency avoidance: state is imported from app.js,
-//  and applyRecipeFilters is called via window.App.applyRecipeFilters)
 
 export function renderRecipes() {
   const kw = state.searchKeyword || '';
@@ -17,7 +13,7 @@ export function renderRecipes() {
     list = allRecipes;
   }
 
-  // Apply legacy keyword search
+  // Apply keyword search
   if (kw) {
     list = list.filter(r =>
       r.title.toLowerCase().includes(kw.toLowerCase()) ||
@@ -33,27 +29,19 @@ export function renderRecipes() {
     list = window.App._applyFilters(list, state.recipeFilters);
   }
 
-  // Apply legacy quick filter (currentFilter) as override
-  if (state.currentFilter === 'faved') {
-    list = list.filter(r => state.favorites.has(r.id));
-  }
-  if (state.currentFilter === 'master') {
-    list = list.filter(r => (state.proficiency[r.id]?.level || '新手') === '大师');
-  }
+  // Apply legacy quick filter
+  if (state.currentFilter === 'faved') list = list.filter(r => state.favorites.has(r.id));
+  if (state.currentFilter === 'master') list = list.filter(r => (state.proficiency[r.id]?.level || '新手') === '大师');
   if (state.recipeFilters?.quick === 'recent') {
     list = list.filter(r => (state.cookedMap[r.id]?.count || 0) > 0)
       .sort((a, b) => new Date(state.cookedMap[b.id]?.last || 0) - new Date(state.cookedMap[a.id]?.last || 0));
   }
-  if (state.recipeFilters?.quick === 'quick') {
-    list = list.filter(r => (r.cook_time || 30) <= 30 && r.difficulty !== '困难');
-  }
-  if (state.recipeFilters?.quick === 'weekend') {
-    list = list.filter(r => r.difficulty === '中等' || r.difficulty === '困难');
-  }
+  if (state.recipeFilters?.quick === 'quick') list = list.filter(r => (r.cook_time || 30) <= 30 && r.difficulty !== '困难');
+  if (state.recipeFilters?.quick === 'weekend') list = list.filter(r => r.difficulty === '中等' || r.difficulty === '困难');
 
   const label = state.currentView === 'favorites' ? '❤️ 收藏' : '📖 我的菜谱';
   const activeCount = getActiveFilterSummaryDisplay();
-  const summaryText = activeCount.length > 0 ? ' · ' + activeCount.join(' · ') : '';
+  const searchHistory = !kw ? getRecentSuggestions() : [];
 
   return `
     <div class="top-bar">
@@ -62,12 +50,16 @@ export function renderRecipes() {
     </div>
     <div class="search-row">
       <span class="sicon">🔍</span>
-      <input id="searchInput" placeholder="搜索菜名、食材、标签..." value="${escapeHtml(kw)}" oninput="App.handleSearchInput(this.value)">
-      ${kw ? `<span class="sclear" onclick="App.clearSearch()">✕</span>` : ''}
+      <input id="searchInput" placeholder="搜索菜名、食材、标签..." value="${escapeHtml(kw)}"
+        oninput="App.handleSearchInput(this.value)"
+        onkeydown="if(event.key==='Enter')App.handleSearchSubmit(event)"
+        onfocus="if(!this.value)App.showSearchSuggestions()">
+      ${kw ? `<span class="sclear" onclick="App.clearSearch()">✕</span>`
+        : `<span class="sicon" style="left:auto;right:32px;cursor:pointer" onclick="App.handleSearchSubmit()">🔍</span>`}
     </div>
     <div class="row-btns">
       <button class="act-btn primary" onclick="App.createRecipe()">➕ 自建菜谱</button>
-      <button class="act-btn" onclick="App.apiSearch()">🌐 在线海量搜索</button>
+      <button class="act-btn" onclick="App.openRecipeFilterPanel()">⚙ 筛选</button>
     </div>
     <!-- Quick filter scroll -->
     <div class="quick-filter-scroll">
@@ -77,15 +69,25 @@ export function renderRecipes() {
       ${renderQuickFilterChip('⚡ 快速晚餐', 'quick')}
       ${renderQuickFilterChip('👫 二人食', 'duo')}
       ${renderQuickFilterChip('🍳 周末尝鲜', 'weekend')}
-      <span class="filter-chip filter-more-btn" onclick="App.openRecipeFilterPanel()">⚙ 筛选${activeCount.length > 0 ? ' ' + activeCount.length : ''}</span>
     </div>
     <!-- Active filter summary -->
     ${activeCount.length > 0 ? `<div class="filter-summary">
       <span class="filter-summary-text">已筛选：${activeCount.join(' · ')}</span>
       <span class="filter-summary-reset" onclick="App.resetRecipeFilters()">重置</span>
     </div>` : ''}
+    <!-- Search suggestions when no keyword -->
+    ${!kw && searchHistory.length > 0 ? `
+    <div style="padding:8px 16px 0">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;display:flex;justify-content:space-between">
+        <span>🕐 最近搜索</span>
+        <span style="cursor:pointer;color:var(--primary)" onclick="App.clearSearchHistory()">清空</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${searchHistory.map(t => `<span class="filter-chip" onclick="App.performUnifiedSearch('${escapeHtml(t)}')">${escapeHtml(t)}</span>`).join('')}
+      </div>
+    </div>` : ''}
     <div class="content">
-      <div style="font-size:13px;color:#999;margin-bottom:10px">${label} · ${list.length} 道${summaryText}</div>
+      <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${label} · ${list.length} 道</div>
       ${list.length === 0
         ? renderEmptyState(kw, activeCount)
         : list.map(r => renderCard(r)).join('')
@@ -97,6 +99,10 @@ export function renderRecipes() {
 function renderQuickFilterChip(label, key) {
   const active = (state.recipeFilters?.quick || state.currentFilter) === key;
   return `<span class="filter-chip${active ? ' active' : ''}" onclick="App.setFilter('${key}')">${label}</span>`;
+}
+
+function getRecentSuggestions() {
+  try { return JSON.parse(localStorage.getItem('rm_search_history') || '[]').slice(0, 6); } catch (e) { return []; }
 }
 
 function renderEmptyState(kw, activeCount) {
@@ -111,8 +117,13 @@ function renderEmptyState(kw, activeCount) {
   if (kw) {
     return `<div class="empty-state">
       <div class="empty-state-icon">🔍</div>
-      <div class="empty-state-title">没有找到"${escapeHtml(kw)}"</div>
-      <div class="empty-state-desc">试试其他关键词，或使用在线搜索</div>
+      <div class="empty-state-title">本地菜谱中没有"${escapeHtml(kw)}"</div>
+      <div class="empty-state-desc">试试完整搜索或热门词：</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px">
+        ${['鸡蛋','土豆','番茄','豆腐','快手菜','下饭菜'].map(t =>
+          `<span class="filter-chip" onclick="App.performUnifiedSearch('${t}')">${t}</span>`
+        ).join('')}
+      </div>
     </div>`;
   }
   if (state.currentView === 'favorites') {
@@ -126,7 +137,7 @@ function renderEmptyState(kw, activeCount) {
   return `<div class="empty-state">
     <div class="empty-state-icon">📖</div>
     <div class="empty-state-title">还没有菜谱</div>
-    <div class="empty-state-desc">创建你的第一道菜谱或使用在线搜索</div>
+    <div class="empty-state-desc">创建你的第一道菜谱吧</div>
   </div>`;
 }
 
@@ -144,7 +155,6 @@ function getActiveFilterSummaryDisplay() {
   }
   if (f.type && f.type.length > 0) parts.push(f.type[0] + (f.type.length > 1 ? ` +${f.type.length - 1}` : ''));
   if (f.cuisine && f.cuisine.length > 0) parts.push(f.cuisine[0] + (f.cuisine.length > 1 ? ` +${f.cuisine.length - 1}` : ''));
-  if (f.scene && f.scene.length > 0) parts.push(f.scene[0] + (f.scene.length > 1 ? ` +${f.scene.length - 1}` : ''));
   return parts;
 }
 

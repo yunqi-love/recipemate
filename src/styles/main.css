@@ -512,6 +512,42 @@ body{
 }
 .tab-row .tab-btn.active{color:var(--primary);border-bottom-color:var(--primary)}
 
+/* ── Source Tag (inline, non-overlapping) ── */
+.card-source-tag{
+  font-size:10px;padding:1px 6px;border-radius:var(--radius-pill);
+  flex-shrink:0;font-weight:500;line-height:1.6;
+}
+.src-mine{background:#E8F5E9;color:#2E7D32}
+.src-local,.src-api{background:#F5F5F5;color:var(--text-muted)}
+.src-online{background:#E3F2FD;color:#1565C0}
+.src-我的{background:#E8F5E9;color:#2E7D32}
+.src-本地{background:#FFF3E0;color:#E65100}
+.src-在线{background:#E3F2FD;color:#1565C0}
+
+/* ── Search Suggestions ── */
+.search-suggestion-chips{
+  display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:10px;
+}
+
+/* ── Stats Card ── */
+.stats-card{
+  background:var(--card-bg);border-radius:var(--radius-card);padding:16px;
+  box-shadow:var(--shadow-sm);margin-bottom:4px;
+}
+.stats-row{display:flex;justify-content:space-around;text-align:center}
+.stats-item{display:flex;flex-direction:column;align-items:center;gap:4px}
+.stats-num{font-size:24px;font-weight:800;color:var(--primary)}
+.stats-label{font-size:11px;color:var(--text-muted)}
+.stats-footer{text-align:center;font-size:11px;color:var(--text-muted);margin-top:10px;padding-top:8px;border-top:1px solid var(--border-light)}
+
+/* ── Journal Action Button ── */
+.journal-action-btn{
+  background:none;border:none;font-size:15px;cursor:pointer;opacity:.5;
+  padding:6px 8px;transition:opacity var(--transition-fast);
+  border-radius:50%;min-width:36px;min-height:36px;
+}
+.journal-action-btn:hover,.journal-action-btn:active{opacity:1;background:var(--primary-soft)}
+
 /* ── Responsive / Safe Area ── */
 @media (max-width:480px){
   .recipe-card .card-title{font-size:15px}
