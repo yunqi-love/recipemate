@@ -1,0 +1,17 @@
+{
+  "name": "recipemate",
+  "version": "4.0.0",
+  "description": "RecipeMate — Chinese recipe PWA app with AI-powered recipe normalization",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "serve": "python3 -m http.server 8080"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  },
+  "keywords": ["recipe", "chinese-food", "pwa", "supabase"],
+  "license": "MIT"
+}
