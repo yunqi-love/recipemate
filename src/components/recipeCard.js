@@ -1,4 +1,4 @@
-// RecipeMate — Recipe Card Component
+// RecipeMate — Recipe Card Component (v2 with image placeholders)
 import { state, getProficiency } from '../app.js';
 
 export function renderCard(r) {
@@ -12,37 +12,81 @@ export function renderCard(r) {
   const userBadge = r.user_id
     ? `<div class="api-badge" style="right:8px;left:auto;background:#4CAF50">我的</div>` : '';
 
+  // Image or placeholder
+  const imgHTML = r.image_url
+    ? `<img class="card-img" src="${r.image_url}" alt="${esc(r.title)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">${getPlaceholderHTML(r)}`
+    : getPlaceholderHTML(r);
+
   // Mastery tag
   const cc = state.cookedMap[r.id]?.count || 0;
   let masteryTag = '';
-  if (cc >= 6) masteryTag = '<span class="recipe-meta-tag mastery-gold">⭐ 拿手菜</span>';
-  else if (cc >= 3) masteryTag = '<span class="recipe-meta-tag mastery-silver">🔥 熟练</span>';
-  else if (cc >= 1) masteryTag = '<span class="recipe-meta-tag mastery-bronze">🌱 初学</span>';
+  if (cc >= 6) masteryTag = '<span class="mastery-tag mastery-gold">⭐ 拿手菜</span>';
+  else if (cc >= 3) masteryTag = '<span class="mastery-tag mastery-silver">🔥 熟练</span>';
+  else if (cc >= 1) masteryTag = '<span class="mastery-tag mastery-bronze">🌱 初学</span>';
 
-  // Quick hint tags
-  const quickTags = [];
-  if ((r.cook_time || 30) <= 20) quickTags.push('⚡ 快手');
-  if (cc >= 1) quickTags.push(`👨‍🍳 ${cc}次`);
+  // Info tags
+  const infoTags = [];
+  if ((r.cook_time || 30) <= 20) infoTags.push('⚡ 快手');
+  if (cc >= 1) infoTags.push(`👨‍🍳 做过${cc}次`);
+  const ingCount = Array.isArray(r.ingredients) ? r.ingredients.length : 0;
+  if (ingCount > 0) infoTags.push(`🥬 ${ingCount}种食材`);
+  const stepCount = Array.isArray(r.steps) ? r.steps.length : 0;
+  if (stepCount > 0) infoTags.push(`📝 ${stepCount}步`);
 
   return `<div class="recipe-card" onclick="App.showDetail('${r.id}',${!!r.isApi})">
-    ${r.image_url ? `<img class="card-img" src="${r.image_url}" alt="${esc(r.title)}" loading="lazy">` : ''}
+    ${imgHTML}
     ${source}${userBadge}
     <div class="card-body">
       <div class="card-row">
         <span class="card-title">${esc(r.title)}</span>
         <span class="card-fav" onclick="event.stopPropagation();App.favClick('${r.id}')">${favIcon}</span>
       </div>
-      <div class="card-desc">${esc(r.description || '')}</div>
+      ${r.description ? `<div class="card-desc">${esc(r.description)}</div>` : ''}
       <div class="card-meta">
         <span class="badge ${diffCls}">${esc(r.difficulty || '中等')}</span>
-        <span style="font-size:12px;color:#999">⏱ ${r.cook_time || 20}分钟</span>
-        <span class="prof-badge ${prof.cls}" onclick="event.stopPropagation();App.adjustCount('${r.id}')">${prof.emoji} ${prof.level}</span>
+        <span style="font-size:11px;color:var(--text-muted)">⏱ ${r.cook_time || 20}分钟</span>
         ${(r.tags || []).slice(0, 2).map(t => `<span class="tag">${esc(t)}</span>`).join('')}
-        ${quickTags.map(t => `<span class="recipe-meta-tag">${esc(t)}</span>`).join('')}
       </div>
+      ${infoTags.length > 0 ? `<div class="card-meta" style="margin-top:6px;gap:4px">${infoTags.map(t => `<span class="recipe-meta-tag">${t}</span>`).join('')}</div>` : ''}
       ${masteryTag ? `<div class="card-meta" style="margin-top:4px">${masteryTag}</div>` : ''}
     </div>
   </div>`;
+}
+
+function getPlaceholderHTML(r) {
+  const theme = getPlaceholderTheme(r);
+  const emoji = getPlaceholderEmoji(r);
+  const letter = (r.title || '菜')[0];
+  return `<div class="card-img-placeholder ${theme}" style="${r.image_url ? 'display:none' : 'display:flex'}">
+    <span>${emoji}</span>
+    <span class="ph-letter">${esc(letter)}</span>
+  </div>`;
+}
+
+function getPlaceholderTheme(r) {
+  const cat = (r.category || '').toLowerCase();
+  const tags = (r.tags || []).map(t => t.toLowerCase());
+  if (cat.includes('素') || cat.includes('蔬') || tags.includes('素菜')) return 'ph-veggie';
+  if (cat.includes('荤') || tags.includes('荤菜') || tags.includes('下饭菜')) return 'ph-meat';
+  if (cat.includes('汤') || cat.includes('粥')) return 'ph-soup';
+  if (cat.includes('主食') || cat.includes('面') || cat.includes('饭')) return 'ph-staple';
+  if (cat.includes('甜品') || cat.includes('甜')) return 'ph-dessert';
+  if (cat.includes('饮品') || cat.includes('饮')) return 'ph-drink';
+  if (cat.includes('水产') || cat.includes('鱼') || cat.includes('虾')) return 'ph-seafood';
+  return 'ph-default';
+}
+
+function getPlaceholderEmoji(r) {
+  const cat = (r.category || '').toLowerCase();
+  if (cat.includes('荤')) return '🍖';
+  if (cat.includes('素')) return '🥬';
+  if (cat.includes('汤')) return '🍲';
+  if (cat.includes('主食')) return '🍚';
+  if (cat.includes('甜品')) return '🍰';
+  if (cat.includes('饮品')) return '🍹';
+  if (cat.includes('水产')) return '🐟';
+  if (cat.includes('早餐')) return '🥣';
+  return '🍳';
 }
 
 function esc(s) {

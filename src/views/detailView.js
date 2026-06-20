@@ -42,18 +42,24 @@ export function showDetail(id, isApi) {
   document.getElementById('app').innerHTML = `
     <div class="content">
       <div class="back-btn" onclick="App.goBack()">‹ 返回</div>
-      ${r.image_url ? `<img class="detail-img" src="${r.image_url}" alt="${escapeHtml(r.title)}" loading="lazy">` : ''}
+      ${r.image_url ? `<img class="detail-img" src="${r.image_url}" alt="${escapeHtml(r.title)}" loading="lazy" onerror="this.style.display='none'">` : ''}
       <div class="detail-title">${escapeHtml(r.title)}
-        ${sourceBadge ? `<span style="font-size:11px;color:#999;margin-left:8px;font-weight:400">${sourceBadge}</span>` : ''}
+        ${sourceBadge ? `<span style="font-size:11px;color:var(--text-muted);margin-left:8px;font-weight:400">${sourceBadge}</span>` : ''}
       </div>
       <div class="detail-desc">${escapeHtml(r.description || '')}</div>
       <div class="detail-meta">
         <span class="badge ${diffCls}">${escapeHtml(r.difficulty || '中等')}</span>
-        <span style="font-size:13px;color:#999">⏱ ${r.cook_time || 20} 分钟</span>
+        <span style="font-size:13px;color:var(--text-muted)">⏱ ${r.cook_time || 20} 分钟</span>
         <span class="prof-badge ${prof.cls}" onclick="App.adjustCount('${id}')">${prof.emoji} ${prof.level}（${count}次）</span>
         ${count >= 6 ? '<span class="mastery-tag mastery-gold">⭐ 拿手菜</span>' : count >= 3 ? '<span class="mastery-tag mastery-silver">🔥 逐渐熟练</span>' : count >= 1 ? '<span class="mastery-tag mastery-bronze">🌱 刚开始练</span>' : ''}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">${tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
+      ${steps.length > 0 ? `
+      <div class="section-title">🍳 做菜前准备</div>
+      ${renderPrepCard(r, steps.length, ingredients.length)}
+      <div style="margin-top:8px">
+        <button class="btn btn-primary btn-block" onclick="App.openCookingMode('${id}')" style="border-radius:var(--radius-btn)">👨‍🍳 开始做菜</button>
+      </div>` : ''}
       <div class="section-title">🥬 食材</div>
       <div class="ing-chips">
         ${ingredients.length ? ingredients.map(i =>
@@ -107,6 +113,34 @@ export function showDetail(id, isApi) {
       `}
     </div>`;
   window.scrollTo(0, 0);
+}
+
+function renderPrepCard(r, stepCount, ingCount) {
+  const time = r.cook_time || 30;
+  const timeLabel = time <= 15 ? '超快' : time <= 30 ? '快速' : time <= 60 ? '中等' : '慢炖';
+  const tips = getPrepTips(r, time, stepCount, ingCount);
+  return `<div class="prep-card">
+    <div class="prep-item"><span class="prep-emoji">⏱</span> 预计${time}分钟 <span style="font-size:10px;color:var(--text-muted);margin-left:4px">${timeLabel}</span></div>
+    <div class="prep-item"><span class="prep-emoji">📊</span> ${escapeHtml(r.difficulty || '中等')}</div>
+    <div class="prep-item"><span class="prep-emoji">🥬</span> ${ingCount}种食材</div>
+    <div class="prep-item"><span class="prep-emoji">📝</span> ${stepCount}个步骤</div>
+    ${tips.length > 0 ? `<div class="prep-tips">${tips.map(t => `<span class="prep-tip">💡 ${escapeHtml(t)}</span>`).join('')}</div>` : ''}
+  </div>`;
+}
+
+function getPrepTips(r, time, stepCount, ingCount) {
+  const tips = [];
+  const tags = (r.tags || []).map(t => t.toLowerCase());
+  const cat = (r.category || '').toLowerCase();
+  if (time <= 20) tips.push('下班后快速完成，适合工作日晚餐');
+  if (cat.includes('荤') || tags.includes('荤菜')) tips.push('肉类提前解冻或腌制会更入味');
+  if (cat.includes('素') || tags.includes('素菜')) tips.push('蔬菜最后再炒，保持脆嫩口感');
+  if (stepCount <= 4) tips.push('步骤少，新手友好');
+  if (ingCount <= 5) tips.push('食材不多，容易准备');
+  if (time >= 60) tips.push('周末慢慢做，享受烹饪乐趣');
+  if (r.difficulty === '简单') tips.push('适合刚开始学做菜的新手');
+  if (tags.includes('快手菜')) tips.push('先把调料备好，下锅一气呵成');
+  return tips.slice(0, 3);
 }
 
 export function renderCookModal(rid) {

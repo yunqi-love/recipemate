@@ -610,6 +610,83 @@ function applyQuickScenarioFilter(scene) {
   render();
 }
 
+// ── Cooking Mode ──
+let _cookingMode = null; // { recipe, steps, currentStepIndex }
+
+function openCookingMode(recipeId) {
+  const r = getRecipeById(recipeId) || state.apiDetailCache[recipeId];
+  if (!r) { toast('❌ 菜谱数据丢失'); return; }
+  const steps = Array.isArray(r.steps) ? r.steps : [];
+  if (steps.length === 0) { toast('❌ 该菜谱没有步骤'); return; }
+
+  _cookingMode = { recipe: r, steps, currentStepIndex: 0 };
+  _renderCookingOverlay();
+}
+
+function closeCookingMode() {
+  _cookingMode = null;
+  const overlay = document.getElementById('cookingModeOverlay');
+  if (overlay) overlay.remove();
+}
+
+function nextCookingStep() {
+  if (!_cookingMode) return;
+  if (_cookingMode.currentStepIndex < _cookingMode.steps.length - 1) {
+    _cookingMode.currentStepIndex++;
+    _updateCookingOverlay();
+  }
+}
+
+function prevCookingStep() {
+  if (!_cookingMode) return;
+  if (_cookingMode.currentStepIndex > 0) {
+    _cookingMode.currentStepIndex--;
+    _updateCookingOverlay();
+  }
+}
+
+function _renderCookingOverlay() {
+  if (!_cookingMode) return;
+  const m = _cookingMode;
+  const total = m.steps.length;
+  const cur = m.currentStepIndex;
+  const step = m.steps[cur];
+  const stepText = typeof step === 'string' ? step : (step.text || '');
+  const stepDetail = typeof step === 'string' ? '' : (step.detail || '');
+  const isLast = cur === total - 1;
+
+  const html = `<div class="cooking-overlay" id="cookingModeOverlay" onclick="event.stopPropagation()">
+    ${isLast ? `
+      <div class="cooking-done">🎉 完成啦！</div>
+      <div class="cooking-done-sub">${esc(stepText)}</div>
+      <div style="margin-top:20px;display:flex;gap:12px;width:100%;max-width:300px;flex-direction:column">
+        <button class="btn btn-primary btn-block" onclick="App.closeCookingMode();App.cookWithJournal('${m.recipe.id}')" style="min-height:48px">📸 去打个卡</button>
+        <button class="btn btn-outline btn-block" onclick="App.closeCookingMode()" style="color:#fff;border-color:rgba(255,255,255,.4);min-height:48px">返回详情</button>
+      </div>
+    ` : `
+      <div class="cooking-step-num">第 ${cur + 1} / ${total} 步</div>
+      <div class="cooking-step-title">${esc(stepText)}</div>
+      ${stepDetail && stepDetail !== stepText ? `<div class="cooking-step-detail">${esc(stepDetail)}</div>` : ''}
+      <div class="cooking-progress">
+        ${Array.from({length: total}, (_, i) =>
+          `<span class="progress-dot${i < cur ? ' done' : i === cur ? ' current' : ''}"></span>`
+        ).join('')}
+      </div>
+      <div class="cooking-controls">
+        <button ${cur === 0 ? 'disabled' : ''} onclick="App.prevCookingStep()">‹ 上一步</button>
+        <button onclick="App.nextCookingStep()">下一步 ›</button>
+      </div>
+      <button class="cooking-exit" onclick="App.closeCookingMode()">退出做菜模式</button>
+    `}
+  </div>`;
+  document.getElementById('cookingModeOverlay')?.remove();
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function _updateCookingOverlay() {
+  _renderCookingOverlay();
+}
+
 // ── Favorites ──
 async function favClick(id) {
   await toggleFav(id);
@@ -1577,6 +1654,8 @@ const App = {
   openRecipeFilterPanel, closeRecipeFilterPanel, setRecipeFilter, resetRecipeFilters,
   applyDraftFilters, dismissFilterSheet, resetDraftFilters,
   applyQuickScenarioFilter,
+  // Cooking Mode
+  openCookingMode, closeCookingMode, nextCookingStep, prevCookingStep,
   // Journal
   deleteJournalEntry,
   // UX Helpers
