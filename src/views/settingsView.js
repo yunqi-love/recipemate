@@ -2,6 +2,7 @@
 import { AI_PROVIDERS, getAIProvider, getAIKey, getAIUrl, getAIModel, saveAISettings } from '../config/aiProviders.js';
 import { testAiConnection } from '../services/aiClient.js';
 import { toast } from '../components/toast.js';
+import { state } from '../app.js';
 
 export function showSettings() {
   // Remove existing overlay first
@@ -46,6 +47,26 @@ export function showSettings() {
       <div class="settings-group">
         <button class="btn btn-outline btn-block" onclick="App.testAI()" style="border-color:#4CAF50;color:#4CAF50">🩺 测试 AI 连接</button>
         <div id="testResult" style="display:none"></div>
+      </div>
+
+      <div class="settings-group" style="margin-top:8px">
+        <label style="font-size:15px">🔬 数据源调试面板</label>
+        <div style="background:#F8F8F8;border-radius:10px;padding:12px;font-size:12px;color:#666;line-height:1.8">
+          <div>🏠 本地中文菜谱：<b>${state.debugLocalRecipeCount ?? '...'} 道</b></div>
+          <div>🥘 Proj Kitchen API：<b>${navigator.onLine ? '📶 在线' : '⚠️ 离线'}</b></div>
+          <div>🔍 最近搜索源：<b>${state.debugSearchSource || '—'}</b></div>
+          <div>📊 最近搜索结果：<b>${state.debugSearchCount || 0} 条</b></div>
+          <div>📝 最近详情食材：<b>${state.debugDetailHasIngredients === true ? '✅ 有' : state.debugDetailHasIngredients === false ? '❌ 缺失' : '—'}</b></div>
+          <div style="margin-top:6px;font-size:10px;color:#999">💡 搜索后自动更新。详情包含食材=✅说明数据源正常。</div>
+        </div>
+      </div>
+
+      <div class="settings-group" style="margin-top:8px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+          <input type="checkbox" id="allowEnglishFallback" ${state.allowEnglishFallback ? 'checked' : ''} onchange="App.toggleEnglishFallback(this.checked)" style="width:auto">
+          🌐 启用英文菜谱兜底（TheMealDB）
+        </label>
+        <p style="font-size:11px;color:#999;margin-top:4px">默认关闭。启用后会在中文菜谱无结果时搜索英文菜谱。</p>
       </div>
 
       <button class="btn btn-primary btn-block" onclick="App.saveSettings()">💾 保存</button>

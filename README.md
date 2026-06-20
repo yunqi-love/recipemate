@@ -11,9 +11,9 @@
 - 📸 **做菜打卡** — 拍照记录每次烹饪，累积熟练度
 - 🏆 **熟练度系统** — 从新手到大师，记录成长
 - 🛒 **购物清单** — 自动将菜谱食材加入清单
-- 🥘 **Proj Kitchen 中文菜谱** — 342 道中文菜谱，分类浏览
-- 🤖 **AI 菜谱重构** — 将外部菜谱转换为标准格式（含完整食材、步骤、火候）
-- 🎲 **今天吃什么** — AI 智能推荐或菜谱库随机挑选
+- 🏠 **本地中文菜谱库** — 342 道完整中文菜谱（食材+步骤），离线可用
+- 🤖 **AI 菜谱重构** — 将外部菜谱转换为标准格式（含完整食材用量、火候、时间）
+- 🎲 **今天吃什么** — 多选标签筛选 + 本地菜谱库 / AI 智能推荐
 - ⚙️ **多 AI 提供商** — DeepSeek / Groq / 硅基流动 / 智谱 / OpenAI / 阿里百炼
 - 📱 **PWA 支持** — 可安装到手机主屏幕
 
@@ -26,6 +26,11 @@ pwa-v2/
 ├── package.json            # 依赖和脚本
 ├── vercel.json             # Vercel 部署配置
 ├── README.md
+├── public/
+│   └── data/
+│       └── chinese-recipes.json   # 本地中文菜谱库（342道完整菜谱）
+├── scripts/
+│   └── import-recipes.cjs         # 菜谱导入脚本
 ├── src/
 │   ├── main.js             # 主入口 + 全局 App 对象
 │   ├── app.js              # 全局状态管理
@@ -35,21 +40,22 @@ pwa-v2/
 │   │   ├── supabaseClient.js      # Supabase 客户端
 │   │   ├── aiClient.js            # AI 调用（菜谱重构 + 推荐）
 │   │   └── recipeSources/
-│   │       ├── index.js           # 数据源注册中心
-│   │       ├── projKitchenSource.js  # Proj Kitchen API
-│   │       └── mealDbSource.js    # TheMealDB（仅兜底）
+│   │       ├── index.js                   # 数据源注册中心（3层策略）
+│   │       ├── localChineseRecipeSource.js # 本地中文菜谱源（主数据源）
+│   │       ├── projKitchenSource.js        # Proj Kitchen API（补充）
+│   │       └── mealDbSource.js             # TheMealDB（默认关闭）
 │   ├── stores/
 │   │   ├── authStore.js      # 登录/注册
 │   │   ├── recipeStore.js    # 菜谱 CRUD + 收藏
 │   │   ├── userStateStore.js # 打卡/熟练度
 │   │   └── shoppingStore.js  # 购物清单
 │   ├── views/
-│   │   ├── homeView.js       # 首页（含今天吃什么）
+│   │   ├── homeView.js       # 首页（含今天吃什么弹窗）
 │   │   ├── recipesView.js    # 菜谱列表
 │   │   ├── detailView.js     # 菜谱详情
 │   │   ├── shopView.js       # 购物清单
 │   │   ├── authView.js       # 登录/注册
-│   │   └── settingsView.js   # 设置（含 AI 测试）
+│   │   └── settingsView.js   # 设置（含 AI 测试 + 数据源调试面板）
 │   ├── components/
 │   │   ├── recipeCard.js     # 菜谱卡片组件
 │   │   └── toast.js          # Toast 提示
@@ -70,7 +76,15 @@ pwa-v2/
 npm install
 ```
 
-### 2. 配置 Supabase
+### 2. 导入中文菜谱数据
+
+```bash
+node scripts/import-recipes.cjs
+```
+
+这会从 Proj Kitchen API 拉取 342 道完整的中国菜谱（含食材和步骤），生成 `public/data/chinese-recipes.json`。
+
+### 3. 配置 Supabase
 
 1. 在 [supabase.com](https://supabase.com) 创建项目
 2. 在 SQL Editor 中依次执行 `supabase/` 目录下的 SQL 文件：
@@ -79,7 +93,7 @@ npm install
    - `fix_rls.sql` — 修复权限
 3. 将你的 Supabase URL 和 anon key 填入 `src/services/supabaseClient.js`
 
-### 3. 配置 AI Key（可选）
+### 4. 配置 AI Key（可选）
 
 1. 启动应用后点击右上角头像进入设置
 2. 选择 AI 提供商（推荐硅基流动，有免费额度）
@@ -98,7 +112,7 @@ npm install
 | Groq | [console.groq.com](https://console.groq.com/keys) | 免费，速度快 |
 | 智谱GLM | [open.bigmodel.cn](https://open.bigmodel.cn/usercenter/apikeys) | 免费额度 |
 
-### 4. 启动开发服务器
+### 5. 启动开发服务器
 
 ```bash
 npm run dev
@@ -106,7 +120,7 @@ npm run dev
 
 浏览器打开 `http://localhost:5173`（默认端口）
 
-### 5. 构建生产版本
+### 6. 构建生产版本
 
 ```bash
 npm run build     # 输出到 dist/
@@ -124,28 +138,61 @@ npm run preview   # 预览构建结果
 npx vercel --prod
 ```
 
-## 数据源
+## 数据源策略（3层）
 
-### 主数据源：Proj Kitchen
-- 342 道中文菜谱，12 个分类
-- API: `https://proj.kitchen/api/recipes`
-- 详情: `https://proj.kitchen/api/recipes/:id`
-- CORS 已开放，无需代理
+本项目使用三层数据源，优先使用本地中文完整菜谱：
 
-### 兜底数据源：TheMealDB
-- 仅在 Proj Kitchen 无结果时使用
+### 第一层：本地中文完整菜谱（最高优先级）
+
+- 文件：`public/data/chinese-recipes.json`
+- 内容：342 道完整中国菜谱，每道菜包含完整食材列表、详细步骤
+- 优势：离线可用，搜索快速，数据完整
+- 生成：运行 `node scripts/import-recipes.cjs` 从 Proj Kitchen API 拉取
+
+### 第二层：Proj Kitchen API（在线补充）
+
+- API: `https://proj.kitchen/api`
+- 作用：当本地菜谱搜不到时，作为在线补充
+- 详情接口提供完整的食材和步骤
+
+### 第三层：TheMealDB（默认关闭）
+
 - API: `https://www.themealdb.com/api/json/v1/1`
+- 默认关闭，需在设置中手动启用「英文菜谱兜底」
+- 仅在中文菜谱无结果时作为最后兜底
+
+### 搜索逻辑
+
+```
+searchAllSources(kw):
+  1. searchLocalChineseRecipes(kw)     — 本地搜索（菜名/食材/步骤/标签/分类）
+  2. searchProjKitchen(kw)             — Proj Kitchen API 在线补充
+  3. searchMealDB(kw)                  — 仅在设置中启用 allowEnglishFallback 时使用
+```
+
+### 详情加载逻辑
+
+```
+showApiDetail(id):
+  1. state.apiDetailCache[id]          — 内存缓存
+  2. getSourceRecipeDetail(id)          — 调用本地源 / Proj Kitchen 详情接口
+  3. state.apiResults 列表项            — 列表数据兜底
+  4. getLocalRecipeById(id)            — 本地菜谱库按 id 查找
+```
 
 ## AI 菜谱重构
 
 正确流程：
 
-1. 用户搜索关键词 → 搜索 Proj Kitchen 中文菜谱
+1. 用户搜索关键词 → 搜索本地中文菜谱库（主数据源）
 2. 展示搜索结果 → 用户点击某个菜谱
-3. 进入详情页 → 显示原始数据
+3. 进入详情页 → 显示**完整**食材和步骤
 4. 用户点击「🤖 AI 重构并保存到我的菜谱」
-5. AI 将原始菜谱重构成标准格式（含完整食材用量、火候、时间）
-6. 保存到自定义菜谱 → 可继续编辑、收藏、加入购物清单
+5. 系统检查数据完整性：
+   - 如果已有完整食材和步骤 → AI 将其重写成 RecipeMate 标准格式（补充火候、时间、状态判断）
+   - 如果数据不完整 → 提示用户，确认后才允许 AI 补全
+6. 保存到自定义菜谱前验证食材和步骤不为空
+7. 保存后可继续编辑、收藏、加入购物清单
 
 AI 输出格式：
 ```json
@@ -159,6 +206,47 @@ AI 输出格式：
   "tags": ["家常菜", "快手菜"]
 }
 ```
+
+## 今天吃什么 — 推荐逻辑
+
+### 多选标签
+
+- 支持多选：点击标签选中（高亮橙色），再次点击取消
+- 选中的类型保存在 state 中，不会丢失
+- 显示选中状态文字：「已选择：家常菜、快手菜」或「未选择类型，将随机推荐」
+
+### 非 AI 推荐（从菜谱库挑选）
+
+1. 从本地中文菜谱库中按标签筛选（OR 匹配）
+2. 排除包含忌口食材的菜谱
+3. 随机返回 3 道
+4. 每道菜显示推荐理由（匹配的标签、快手/简单等）
+
+### AI 推荐
+
+1. 从本地菜谱库筛选 10–20 道候选菜
+2. 将候选菜的 title / ingredients / tags / cook_time 传给 AI
+3. 要求 AI **只能从候选菜里选 3 道**，不允许凭空编菜
+4. AI 返回选中的菜谱 ID 和推荐理由
+5. 前端根据 ID 找回完整菜谱展示
+6. 如果 AI 失败，自动 fallback 到本地随机推荐
+
+## 数据来源与致谢
+
+### 本地中文菜谱库
+
+- 数据来源：[Proj Kitchen](https://proj.kitchen) — 开源中文菜谱 API
+- GitHub: [GraceFeng930/ProjKitchen](https://github.com/GraceFeng930/ProjKitchen)
+- 数据量：342 道完整中国菜谱
+- 每道菜包含：菜名、分类、难度、食材列表（含用量）、详细步骤、厨具
+- 导入方式：`scripts/import-recipes.cjs` 通过 API 自动拉取并转换为 RecipeMate 格式
+- #### License: **CC BY-NC-SA** (数据来自 Proj Kitchen 开源项目)
+
+### TheMealDB
+
+- [TheMealDB](https://www.themealdb.com) — 英文菜谱数据库
+- 默认关闭，需在设置中手动启用
+- 仅在中文菜谱搜索无结果时作为兜底
 
 ## 技术栈
 
@@ -181,4 +269,6 @@ AI 输出格式：
 
 ## License
 
-MIT
+代码: MIT
+
+菜谱数据: CC BY-NC-SA（来自 [Proj Kitchen](https://github.com/GraceFeng930/ProjKitchen)）

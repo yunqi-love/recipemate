@@ -74,29 +74,43 @@ export function renderNav(current) {
 
 /**
  * Render the "Today's Eat" modal with conditions.
+ * Uses state.todayOptions for persistence.
  */
 export function renderTodayEatModal() {
+  // Initialize todayOptions if needed
+  if (!state.todayOptions) {
+    state.todayOptions = { types: [], servings: '2', avoid: '' };
+  }
+
+  const types = state.todayOptions.types || [];
+  const servings = state.todayOptions.servings || '2';
+  const avoid = state.todayOptions.avoid || '';
+
+  const TAG_LIST = ['家常菜', '快手菜', '下饭菜', '减脂', '早餐', '晚餐', '川菜', '素菜', '荤菜', '汤与粥'];
+
   const html = `<div class="modal-overlay" id="todayEatModal" onclick="if(event.target===this)this.remove()">
     <div class="modal-sheet">
       <h3>🎲 今天吃什么？</h3>
       <p style="font-size:12px;color:#999;text-align:center;margin-bottom:16px">选择你的偏好，我来推荐</p>
 
       <label class="form-label">用餐人数</label>
-      <select id="teServings" style="width:100%;padding:12px;border-radius:12px;border:1px solid #DDD;margin-bottom:12px;font-size:14px">
-        <option value="1">1人</option>
-        <option value="2" selected>2人</option>
-        <option value="3">3人</option>
-        <option value="4">4人+</option>
+      <select id="teServings" style="width:100%;padding:12px;border-radius:12px;border:1px solid #DDD;margin-bottom:12px;font-size:14px" onchange="App.updateTodayOptions()">
+        <option value="1" ${servings === '1' ? 'selected' : ''}>1人</option>
+        <option value="2" ${servings === '2' ? 'selected' : ''}>2人</option>
+        <option value="3" ${servings === '3' ? 'selected' : ''}>3人</option>
+        <option value="4" ${servings === '4' ? 'selected' : ''}>4人+</option>
       </select>
 
       <label class="form-label">忌口 / 过敏</label>
-      <input id="teAvoid" placeholder="例如：海鲜、花生、牛奶（可留空）" style="width:100%;padding:12px;border-radius:12px;border:1px solid #DDD;margin-bottom:12px;font-size:14px">
+      <input id="teAvoid" placeholder="例如：海鲜、花生、牛奶（可留空）" value="${escAttr(avoid)}" style="width:100%;padding:12px;border-radius:12px;border:1px solid #DDD;margin-bottom:12px;font-size:14px" onchange="App.updateTodayOptions()">
 
       <label class="form-label">想吃类型（可多选）</label>
+      <div id="teSelectedStatus" style="font-size:12px;color:#FF6B35;margin-bottom:8px;font-weight:600">${types.length > 0 ? '已选择：' + types.join('、') : '未选择类型，将随机推荐'}</div>
       <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px" id="teTypes">
-        ${['家常菜', '快手菜', '下饭菜', '减脂', '早餐', '晚餐', '川菜', '素菜', '荤菜', '汤与粥'].map(t => `
-          <span class="filter-chip te-chip" data-tag="${t}" onclick="App.toggleTodayTag(this)">${t}</span>
-        `).join('')}
+        ${TAG_LIST.map(t => {
+          const isSelected = types.includes(t);
+          return `<span class="filter-chip te-chip${isSelected ? ' selected' : ''}" data-tag="${t}" onclick="App.toggleTodayTag(this)">${t}</span>`;
+        }).join('')}
       </div>
 
       <label class="form-label">或让 AI 推荐</label>
@@ -104,7 +118,7 @@ export function renderTodayEatModal() {
         <button class="btn btn-primary" onclick="App.doTodayRecommend(true)" style="flex:1">🤖 AI 智能推荐</button>
         <button class="btn btn-outline" onclick="App.doTodayRecommend(false)" style="flex:1">📖 从菜谱库挑选</button>
       </div>
-      <button class="btn btn-outline btn-block" style="margin-top:8px;color:#999" onclick="document.getElementById('todayEatModal').remove()">取消</button>
+      <button class="btn btn-outline btn-block" style="margin-top:8px;color:#999" onclick="document.getElementById('todayEatModal')?.remove()">取消</button>
     </div>
   </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
@@ -112,4 +126,8 @@ export function renderTodayEatModal() {
 
 function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function escAttr(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }

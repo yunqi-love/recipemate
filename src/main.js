@@ -9,7 +9,11 @@ import { toast } from './components/toast.js';
 // Services
 import { aiNormalizeRecipe, aiRecommend } from './services/aiClient.js';
 import { searchAllSources, getSourceRecipeDetail } from './services/recipeSources/index.js';
-import { searchProjKitchenByTags } from './services/recipeSources/projKitchenSource.js';
+import {
+  searchLocalChineseRecipes, searchLocalByTags,
+  getRandomLocalRecipes, getLocalRecipeById,
+  loadLocalChineseRecipes, getLocalRecipeCount
+} from './services/recipeSources/localChineseRecipeSource.js';
 
 // Stores
 import { checkAuth, handleAuth, handleLogout } from './stores/authStore.js';
@@ -220,7 +224,9 @@ async function apiSearch() {
   }
 
   state.apiResults = results;
-  const srcLabel = source === 'projkitchen' ? '🥘 ProjKitchen（中文菜谱）' : '🌐 TheMealDB（英文菜谱）';
+  const srcLabel = source === 'local_chinese' ? '🏠 本地中文菜谱' :
+    source === 'projkitchen' ? '🥘 ProjKitchen（中文补充）' :
+    source === 'themealdb' ? '🌐 TheMealDB（英文兜底）' : '🌐 在线';
 
   let html = `<div class="content">
     <div class="back-btn" onclick="App.navTo('recipes')">‹ 返回</div>
@@ -246,30 +252,129 @@ async function apiSearch() {
   app.innerHTML = html;
 }
 
-function showApiDetail(id) {
-  const r = (state.apiResults || []).find(x => x.id === id);
-  if (!r) return;
+async function showApiDetail(id) {
+  // Show loading first
+  const app = document.getElementById('app');
+  app.innerHTML = `<div class="content">
+    <div class="back-btn" onclick="App.goBack()">‹ 返回</div>
+    <div class="loading">🔍 正在加载菜谱详情...</div>
+  </div>`;
 
   state.currentDetailId = id;
   state.currentDetailIsApi = true;
   if (!state.parentView) state.parentView = state.currentView;
-  state.apiDetailCache[id] = r;
 
-  // Temporarily add to recipes so showDetail can find it
-  state.recipes.push({ ...r, id, isApi: true });
-  showDetail(id, true);
-  state.recipes.pop();
+  // 1. Check cache first
+  const cached = state.apiDetailCache[id];
+  if (cached && cached.ingredients && cached.ingredients.length > 0 && cached.steps && cached.steps.length > 0) {
+    // Cache has complete data — use directly
+  } else {
+    // 2. Try to get full detail from source
+    const full = await getSourceRecipeDetail(id);
+
+    if (full && full.ingredients && full.ingredients.length > 0) {
+      state.apiDetailCache[id] = full;
+    } else {
+      // 3. Fallback: use list data from apiResults
+      const listItem = (state.apiResults || []).find(x => x.id === id);
+      if (listItem) {
+        state.apiDetailCache[id] = listItem;
+      } else {
+        // 4. Last resort: try local Chinese source by id/title
+        const local = await getLocalRecipeById(id);
+        if (local) {
+          state.apiDetailCache[id] = local;
+        } else {
+          app.innerHTML = `<div class="content">
+            <div class="back-btn" onclick="App.goBack()">‹ 返回</div>
+            <div class="empty">😢 无法加载菜谱详情<br>请返回重试或使用其他数据源</div>
+          </div>`;
+          return;
+        }
+      }
+    }
+  }
+
+  // Ensure the recipe object is in state.recipes for showDetail to find it
+  const detail = state.apiDetailCache[id];
+  const existing = state.recipes.find(x => x.id === id);
+  if (!existing) {
+    state.recipes.push({ ...detail, id, isApi: true });
+    showDetail(id, true);
+    state.recipes.pop();
+  } else {
+    showDetail(id, true);
+  }
 }
 
 // ── AI Save to My Recipes ──
 async function aiSaveRecipe(id) {
-  const r = state.apiDetailCache[id] || getRecipeById(id);
-  if (!r) { toast('❌ 菜谱数据丢失，请重新搜索'); return; }
+  // 1. Get full recipe — try multiple sources
+  let r = getRecipeById(id);
 
-  toast('🤖 AI 正在重构菜谱（约15秒）...');
+  // 2. Check if data is complete
+  const hasIngredients = r && Array.isArray(r.ingredients) && r.ingredients.length > 0;
+  const hasSteps = r && Array.isArray(r.steps) && r.steps.length > 0;
+  const hasTitle = r && r.title && r.title.trim().length > 0;
+
+  if (!hasTitle || !hasIngredients || !hasSteps) {
+    // Try to enrich from detail API / local source
+    toast('🔍 正在获取完整菜谱数据...');
+    const full = await getSourceRecipeDetail(id);
+
+    if (full && full.ingredients && full.ingredients.length > 0 && full.steps && full.steps.length > 0) {
+      r = { ...r, ingredients: full.ingredients, steps: full.steps, description: full.description || r.description };
+      state.apiDetailCache[id] = r;
+    } else if (r && r.title) {
+      // Data is still incomplete — ask user
+      const proceed = confirm(
+        `当前菜谱"${r.title}"的原始数据不完整：\n` +
+        `食材：${hasIngredients ? r.ingredients.length + '种' : '缺失'}\n` +
+        `步骤：${hasSteps ? r.steps.length + '步' : '缺失'}\n\n` +
+        `是否让 AI 根据菜名和分类补全？\n` +
+        `（AI 会尝试生成合理的食材和步骤，但可能不完全准确）`
+      );
+      if (!proceed) {
+        toast('⚠️ 已取消，请手动编辑菜谱补充食材和步骤');
+        return;
+      }
+    } else {
+      toast('❌ 菜谱数据丢失，请重新搜索');
+      return;
+    }
+  }
+
+  // 3. Guard: data must be complete at this point
+  if (!r.title || (!Array.isArray(r.ingredients) || r.ingredients.length === 0) && !confirm('食材列表为空，确定继续？')) {
+    toast('⚠️ 已取消保存');
+    return;
+  }
+
+  // 4. Check if data already has complete ingredients and steps
+  const ingComplete = Array.isArray(r.ingredients) && r.ingredients.length > 0;
+  const stepsComplete = Array.isArray(r.steps) && r.steps.length > 0;
+
+  if (ingComplete && stepsComplete) {
+    // AI's role: rewrite into RecipeMate standard format (not invent from scratch)
+    toast('🤖 AI 正在重写成标准格式（约15秒）...');
+  } else {
+    // AI needs to supplement
+    toast('🤖 AI 正在补全菜谱（约15秒）...');
+  }
+
   const data = await aiNormalizeRecipe(r);
 
-  const saveData = data || {
+  // 5. Build save data — must not have empty ingredients/steps
+  const saveData = data ? {
+    title: data.title || r.title,
+    desc: data.description || r.description || '',
+    diff: data.difficulty || r.difficulty || '中等',
+    time: data.cook_time || r.cook_time || 30,
+    img: data.image_url || r.image_url || null,
+    ing: (data.ingredients && data.ingredients.length > 0) ? data.ingredients : r.ingredients || [],
+    steps: (data.steps && data.steps.length > 0) ? data.steps : r.steps || [],
+    tags: (data.tags && data.tags.length > 0) ? data.tags : r.tags || []
+  } : {
     title: r.title,
     desc: r.description || '',
     diff: r.difficulty || '中等',
@@ -280,8 +385,22 @@ async function aiSaveRecipe(id) {
     tags: r.tags || []
   };
 
+  // 6. Final validation — reject empty data
+  if (!saveData.title) {
+    toast('❌ 菜名为空，保存失败');
+    return;
+  }
+  if (!saveData.ing || saveData.ing.length === 0) {
+    toast('❌ 食材列表为空，保存失败。请手动编辑菜谱补充食材。');
+    return;
+  }
+  if (!saveData.steps || saveData.steps.length === 0) {
+    toast('❌ 步骤列表为空，保存失败。请手动编辑菜谱补充步骤。');
+    return;
+  }
+
   if (!data) {
-    toast('⚠️ AI 未响应，保存原始菜谱（可后续手动编辑）');
+    toast('⚠️ AI 未响应，已保存原始菜谱数据（可后续手动编辑）');
   }
 
   await saveCustomRecipe(saveData, null);
@@ -565,18 +684,22 @@ async function deleteCustomRecipeDetail(id) {
 }
 
 // ── Today's Eat ──
+function updateTodayOptions() {
+  if (!state.todayOptions) state.todayOptions = { types: [], servings: '2', avoid: '' };
+  const servingsEl = document.getElementById('teServings');
+  const avoidEl = document.getElementById('teAvoid');
+  if (servingsEl) state.todayOptions.servings = servingsEl.value;
+  if (avoidEl) state.todayOptions.avoid = avoidEl.value.trim();
+}
 function showTodayEat() {
   renderTodayEatModal();
 }
 
 async function doTodayRecommend(useAI) {
-  const selectedTags = [];
-  document.querySelectorAll('.te-chip.selected').forEach(el => {
-    selectedTags.push(el.dataset.tag);
-  });
-
-  const servings = document.getElementById('teServings')?.value || '2';
-  const avoid = document.getElementById('teAvoid')?.value?.trim() || '';
+  // Read from state, not DOM
+  const selectedTags = state.todayOptions?.types || [];
+  const servings = state.todayOptions?.servings || '2';
+  const avoid = (state.todayOptions?.avoid || '').trim();
 
   document.getElementById('todayEatModal')?.remove();
 
@@ -589,45 +712,128 @@ async function doTodayRecommend(useAI) {
 
   let results = [];
 
-  if (useAI) {
-    // Try AI recommendation
-    const conditions = `${servings}人份，${selectedTags.length ? '想吃' + selectedTags.join('、') : '不限类型'}，${avoid ? '忌口：' + avoid : '无忌口'}`;
-    const aiResults = await aiRecommend(conditions);
+  // Pre-load local recipes for candidate filtering
+  await loadLocalChineseRecipes();
 
-    if (aiResults && aiResults.length > 0) {
-      // Map AI results to recipe-like objects
-      results = aiResults.map((x, i) => ({
-        id: 'ai_rec_' + Date.now() + '_' + i,
-        title: x.title || x.菜名 || '',
-        description: x.reason || x.推荐理由 || '',
-        difficulty: x.difficulty || x.难度 || '中等',
-        cook_time: x.cook_time || x.耗时 || 30,
-        image_url: null,
-        ingredients: [],
-        steps: [],
-        tags: x.tags || x.标签 || [],
-        isApi: true,
-        isAi: true,
-        source: 'ai_recommend'
+  // Helper: filter by tags (OR match), exclude avoid ingredients
+  function filterLocal(tagList, avoidStr) {
+    return searchLocalByTags(tagList.length > 0 ? tagList : ['家常菜'])
+      .then(pool => {
+        // Exclude by avoid ingredients
+        if (avoidStr) {
+          const avoidWords = avoidStr.split(/[,，\s]+/).map(w => w.trim().toLowerCase()).filter(Boolean);
+          if (avoidWords.length > 0) {
+            pool = pool.filter(r =>
+              !avoidWords.some(aw =>
+                (r.ingredients || []).some(i =>
+                  (i.name || '').toLowerCase().includes(aw)
+                )
+              )
+            );
+          }
+        }
+        return pool;
+      });
+  }
+
+  if (useAI) {
+    // 1. Get candidate pool from local Chinese recipes (10-20 items)
+    const candidatePool = await filterLocal(selectedTags, avoid);
+    const candidates = candidatePool.sort(() => Math.random() - 0.5).slice(0, 20);
+
+    if (candidates.length === 0) {
+      toast('⚠️ 没有符合条件的菜谱，请调整偏好');
+      app.innerHTML = `<div class="content">
+        <div class="back-btn" onclick="App.navTo('home')">‹ 返回首页</div>
+        <div class="empty">暂时没有符合条件的菜谱 😢<br>试试调整偏好或减少忌口</div>
+      </div>`;
+      return;
+    }
+
+    // 2. Build AI prompt with real candidates
+    const tagDesc = selectedTags.length > 0 ? '想吃类型：' + selectedTags.join('、') : '不限类型';
+    const avoidDesc = avoid ? '忌口/过敏：' + avoid : '无忌口';
+    const candidateList = candidates.map(c => ({
+      id: c.id,
+      title: c.title,
+      category: c.category || '',
+      tags: (c.tags || []).slice(0, 3),
+      difficulty: c.difficulty,
+      cook_time: c.cook_time,
+      ingredients: (c.ingredients || []).map(i => i.name)
+    }));
+
+    // 3. Ask AI to pick 3 from candidates
+    let aiResults = null;
+    try {
+      aiResults = await aiRecommend(JSON.stringify({
+        servings: `${servings}人份`,
+        preferences: tagDesc,
+        avoid: avoidDesc,
+        candidates: candidateList
       }));
+    } catch (e) {
+      console.warn('AI recommend failed:', e.message);
+    }
+
+    // 4. Process AI results
+    if (aiResults && Array.isArray(aiResults) && aiResults.length > 0) {
+      // Map AI-selected titles back to full local recipes
+      results = aiResults.map(ai => {
+        const match = candidates.find(c =>
+          c.id === ai.id || c.title === ai.title || c.title === ai.菜名
+        );
+        if (match) {
+          return {
+            ...match,
+            description: ai.reason || ai.推荐理由 || match.description,
+            isApi: false,
+            isAi: true,
+            aiReason: ai.reason || ai.推荐理由 || ''
+          };
+        }
+        // Fallback: AI gave a title not in candidates — use first candidate
+        return { ...candidates[0], isApi: false, isAi: true, aiReason: ai.reason || '' };
+      });
     } else {
-      // Fallback: search Proj Kitchen for matching recipes
-      const tagList = selectedTags.length > 0 ? selectedTags : ['家常菜', '快手菜'];
-      results = await searchProjKitchenByTags(tagList);
-      results = results.slice(0, 3);
+      // 5. AI failed — fallback to local random
+      results = candidates.sort(() => Math.random() - 0.5).slice(0, 3);
+      toast('⚠️ AI 推荐失败，已使用本地菜谱库随机推荐');
     }
   } else {
-    // Pick from Proj Kitchen by tags or random
-    const tagList = selectedTags.length > 0 ? selectedTags : ['家常菜'];
-    results = await searchProjKitchenByTags(tagList);
-    results = results.slice(0, 3);
+    // Non-AI: pick from local Chinese recipes
+    const pool = await filterLocal(selectedTags, avoid);
+    results = pool.sort(() => Math.random() - 0.5).slice(0, 3);
+
+    // Add recommendation reasons
+    results = results.map(r => {
+      const matchedTags = [];
+      if (selectedTags.length > 0) {
+        selectedTags.forEach(t => {
+          if ((r.tags || []).includes(t) || (r.category || '') === t || r.title.includes(t)) {
+            matchedTags.push(t);
+          }
+        });
+      }
+      const reasons = [];
+      if (matchedTags.length > 0) reasons.push(`匹配了标签：${matchedTags.join('、')}`);
+      if (r.cook_time <= 15) reasons.push('快手菜，适合忙碌时');
+      if (r.difficulty === '简单') reasons.push('简单易做');
+
+      return {
+        ...r,
+        description: reasons.join(' · ') || r.description,
+        isApi: false,
+        isAi: false
+      };
+    });
   }
 
   state.todayResults = results;
   state.apiResults = results;
   results.forEach(r => { state.apiDetailCache[r.id] = r; });
 
-  const srcLabel = useAI ? '🤖 AI 推荐' : '📖 菜谱库挑选';
+  const srcLabel = useAI ? '🤖 AI 推荐（基于本地菜谱库）' : '📖 本地菜谱库挑选';
 
   let html = `<div class="content">
     <div class="back-btn" onclick="App.navTo('home')">‹ 返回首页</div>
@@ -644,10 +850,11 @@ async function doTodayRecommend(useAI) {
       <div class="api-badge">${srcLabel}</div>
       <div class="card-body">
         <div class="card-row"><span class="card-title">${esc(r.title)}</span></div>
-        <div class="card-desc">${esc(r.description || '')}</div>
+        <div class="card-desc">${esc(r.description || r.aiReason || '')}</div>
         <div class="card-meta">
           <span class="badge ${diffCls}">${esc(r.difficulty || '中等')}</span>
           <span style="font-size:12px;color:#999">⏱ ${r.cook_time || 20}分钟</span>
+          <span style="font-size:12px;color:#999">🥬 ${(r.ingredients || []).length}种食材</span>
           ${(r.tags || []).slice(0, 2).map(t => `<span class="tag">${esc(t)}</span>`).join('')}
         </div>
       </div>
@@ -659,24 +866,66 @@ async function doTodayRecommend(useAI) {
 }
 
 function showTodayDetail(id) {
-  const r = (state.todayResults || state.apiResults || []).find(x => x.id === id);
-  if (!r) return;
+  // Try to get full recipe detail — show loading, then navigate
+  (async () => {
+    const full = await getSourceRecipeDetail(id);
+    const cached = state.apiDetailCache[id];
+    const r = full || (state.todayResults || state.apiResults || []).find(x => x.id === id) || cached;
 
-  state.currentDetailId = id;
-  state.currentDetailIsApi = true;
-  if (!state.parentView) state.parentView = state.currentView;
-  state.apiDetailCache[id] = r;
+    if (!r) {
+      toast('❌ 无法加载菜谱详情');
+      return;
+    }
 
-  state.recipes.push({ ...r, id, isApi: true });
-  showDetail(id, true);
-  state.recipes.pop();
+    state.currentDetailId = id;
+    state.currentDetailIsApi = true;
+    if (!state.parentView) state.parentView = state.currentView;
+    state.apiDetailCache[id] = r;
+
+    const existing = state.recipes.find(x => x.id === id);
+    if (!existing) {
+      state.recipes.push({ ...r, id, isApi: true });
+      showDetail(id, true);
+      state.recipes.pop();
+    } else {
+      showDetail(id, true);
+    }
+  })();
 }
 
 function toggleTodayTag(el) {
-  el.classList.toggle('selected');
+  const tag = el.dataset.tag;
+  if (!tag) return;
+
+  // Toggle in state
+  if (!state.todayOptions) {
+    state.todayOptions = { types: [], servings: '2', avoid: '' };
+  }
+  const idx = state.todayOptions.types.indexOf(tag);
+  if (idx >= 0) {
+    state.todayOptions.types.splice(idx, 1);
+    el.classList.remove('selected');
+  } else {
+    state.todayOptions.types.push(tag);
+    el.classList.add('selected');
+  }
+
+  // Update the status text
+  const statusEl = document.getElementById('teSelectedStatus');
+  if (statusEl) {
+    const types = state.todayOptions.types;
+    statusEl.textContent = types.length > 0
+      ? '已选择：' + types.join('、')
+      : '未选择类型，将随机推荐';
+  }
 }
 
 // ── Settings ──
+function toggleEnglishFallback(val) {
+  state.allowEnglishFallback = val === true;
+  toast(val ? '✅ 已启用英文菜谱兜底' : '❌ 已关闭英文菜谱兜底（仅用中文）');
+}
+
 function doSaveSettings() {
   const p = document.getElementById('aiProvider');
   const u = document.getElementById('aiUrl');
@@ -720,14 +969,18 @@ const App = {
   // Settings
   showSettings, updateSetForm, saveSettings: doSaveSettings,
   testAI: doTestAI,
+  toggleEnglishFallback,
   // Today's Eat
-  showTodayEat, doTodayRecommend, showTodayDetail, toggleTodayTag
+  showTodayEat, doTodayRecommend, showTodayDetail, toggleTodayTag, updateTodayOptions
 };
 
 window.App = App;
 
 // ── Initialize ──
 async function init() {
+  // Preload local Chinese recipes in background for fast search
+  getLocalRecipeCount().then(n => { state.debugLocalRecipeCount = n; });
+
   await checkAuth();
   if (state.session) {
     await loadAllData();

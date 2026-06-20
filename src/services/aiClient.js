@@ -246,9 +246,13 @@ export async function aiNormalizeRecipe(sourceRecipe) {
 }
 
 /**
- * AI generate recipe name list — for "today's eat" recommendations only.
+ * AI recommend recipes from a candidate pool — for "today's eat" only.
+ *
+ * Expects input: a JSON string with {servings, preferences, avoid, candidates: [{id, title, category, tags, difficulty, cook_time, ingredients}]}
+ *
+ * Returns: [{id, title, reason, difficulty, cook_time, tags}] — picks from the candidate pool.
  */
-export async function aiRecommend(conditions) {
+export async function aiRecommend(inputData) {
   const key = getAIKey();
   const url = getAIUrl();
   const model = getAIModel();
@@ -256,32 +260,83 @@ export async function aiRecommend(conditions) {
   if (!key) return null;
 
   try {
-    const prompt = `根据以下条件推荐3道菜：${conditions}。返回严格JSON：[{"title":"菜名","reason":"推荐理由","difficulty":"简单/中等/困难","cook_time":数字,"tags":["标签1","标签2"]}]`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Authorization': 'Bearer ' + key,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.8,
-        max_tokens: 800
-      })
-    });
+    // Parse input if it's a string
+    let parsed;
+    if (typeof inputData === 'string') {
+      try {
+        parsed = JSON.parse(inputData);
+      } catch (e) {
+        // Legacy format: plain conditions string
+        const prompt = `根据以下条件推荐3道菜：${inputData}。返回严格JSON：[{"title":"菜名","reason":"推荐理由","difficulty":"简单/中等/困难","cook_time":数字,"tags":["标签1","标签2"]}]`;
+        return await _callAI(url, key, model, prompt);
+      }
+    } else {
+      parsed = inputData;
+    }
 
-    if (!res.ok) return null;
-    const d = await res.json();
-    if (!d.choices) return null;
+    const { servings, preferences, avoid, candidates } = parsed;
 
-    let raw = d.choices[0].message.content || '';
-    raw = raw.replace(/```(\w+)?/g, '').trim();
-    const m = raw.match(/\[[\s\S]*\]/);
-    if (!m) return null;
+    // If no candidates given, fall back to generic recommendation
+    if (!candidates || candidates.length === 0) {
+      const prompt = `根据条件推荐3道菜：${servings}，${preferences}，${avoid}。返回严格JSON：[{"title":"菜名","reason":"推荐理由","difficulty":"简单/中等/困难","cook_time":数字,"tags":["标签1","标签2"]}]`;
+      return await _callAI(url, key, model, prompt);
+    }
 
-    return JSON.parse(m[0]);
+    // Build prompt with real candidate data
+    const candidateSummary = candidates.map((c, i) =>
+      `${i}: id="${c.id}", 菜名="${c.title}", 分类="${c.category || ''}", 标签=${JSON.stringify(c.tags || [])}, 难度="${c.difficulty}", 耗时${c.cook_time || 20}分钟, 食材=${JSON.stringify(c.ingredients || [])}`
+    ).join('\n');
+
+    const prompt = `你是一位贴心的家庭厨师，请根据用户的偏好，从以下候选菜谱中挑选3道最适合的菜。
+
+【用户偏好】
+- 用餐人数：${servings || '2人份'}
+- 偏好：${preferences || '不限'}
+- 忌口/过敏：${avoid || '无'}
+
+【候选菜谱列表】（只能从中选3道）
+${candidateSummary}
+
+【挑选规则】
+1. 必须从候选菜谱中选择，不能编造不在列表中的菜
+2. 优先匹配用户偏好标签
+3. 避开用户忌口食材
+4. 考虑搭配均衡（有荤有素，不重复）
+5. 每道菜写15-30字推荐理由（中文）
+
+【严格输出 JSON 数组，不要 markdown 代码块，不要额外文字】
+[{"id":"候选菜谱的id","title":"菜名","reason":"推荐理由","difficulty":"简单/中等/困难","cook_time":数字,"tags":["标签"]}]`;
+
+    return await _callAI(url, key, model, prompt);
   } catch (e) {
+    console.warn('aiRecommend error:', e.message);
     return null;
   }
+}
+
+async function _callAI(url, key, model, prompt) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Authorization': 'Bearer ' + key,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.8,
+      max_tokens: 800
+    })
+  });
+
+  if (!res.ok) return null;
+  const d = await res.json();
+  if (!d.choices) return null;
+
+  let raw = d.choices[0].message.content || '';
+  raw = raw.replace(/```(\w+)?/g, '').trim();
+  const m = raw.match(/\[[\s\S]*\]/);
+  if (!m) return null;
+
+  return JSON.parse(m[0]);
 }

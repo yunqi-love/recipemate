@@ -28,8 +28,15 @@ export const state = {
   // Proj Kitchen cache
   projKitchenRecipes: null,
   // Today's eat state
-  todayOptions: null,
-  todayResults: null
+  todayOptions: { types: [], servings: '2', avoid: '' },
+  todayResults: null,
+  // Settings
+  allowEnglishFallback: false,
+  // Data source debug
+  debugSearchSource: null,
+  debugSearchCount: 0,
+  debugDetailHasIngredients: null,
+  debugLocalRecipeCount: null
 };
 
 export function getProficiency(count) {
