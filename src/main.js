@@ -55,10 +55,26 @@ function render() {
 
   if (state.currentView === 'home') {
     app.innerHTML = renderHome();
-    // Defer rendering cooking stats after DOM is ready
+    // Defer rendering dynamic sections after DOM is ready
     setTimeout(() => {
       const statsEl = document.getElementById('homeCookingStats');
       if (statsEl) statsEl.innerHTML = renderCookingStatsCard();
+      const recsEl = document.getElementById('homePersonalizedRecs');
+      if (recsEl) {
+        const recs = getPersonalizedRecommendations();
+        recsEl.innerHTML = recs.length > 0
+          ? recs.map(r => `<div class="suggestion-row" onclick="App.showDetail('${r.id}',false)">
+              <div class="suggestion-left">
+                <span class="suggestion-emoji">${r.recTag?.slice(0,2) || '🍽️'}</span>
+                <div>
+                  <div class="suggestion-title">${esc(r.title)}</div>
+                  <div class="suggestion-reason">${esc(r.recReason || '')}</div>
+                </div>
+              </div>
+              <span class="suggestion-tag">${esc(r.recTag?.slice(2) || '')}</span>
+            </div>`).join('')
+          : '<div class="empty-state" style="padding:16px"><div class="empty-state-desc">多做一些菜后，推荐会越来越准</div></div>';
+      }
     }, 10);
     return;
   }
@@ -637,7 +653,7 @@ function applyQuickScenarioFilter(scene) {
 }
 
 // ── Cooking Mode ──
-let _cookingMode = null; // { recipe, steps, currentStepIndex }
+let _cookingMode = null; // { recipe, steps, currentStepIndex, timerSeconds, timerInterval, elapsedSeconds }
 
 function openCookingMode(recipeId) {
   const r = getRecipeById(recipeId) || state.apiDetailCache[recipeId];
@@ -645,11 +661,19 @@ function openCookingMode(recipeId) {
   const steps = Array.isArray(r.steps) ? r.steps : [];
   if (steps.length === 0) { toast('❌ 该菜谱没有步骤'); return; }
 
-  _cookingMode = { recipe: r, steps, currentStepIndex: 0 };
+  _cookingMode = { recipe: r, steps, currentStepIndex: 0, timerSeconds: 0, timerInterval: null, elapsedSeconds: 0 };
   _renderCookingOverlay();
+  // Start elapsed timer
+  _cookingMode.timerInterval = setInterval(() => {
+    if (_cookingMode) {
+      _cookingMode.elapsedSeconds++;
+      _updateCookingTimerDisplay();
+    }
+  }, 1000);
 }
 
 function closeCookingMode() {
+  if (_cookingMode?.timerInterval) clearInterval(_cookingMode.timerInterval);
   _cookingMode = null;
   const overlay = document.getElementById('cookingModeOverlay');
   if (overlay) overlay.remove();
@@ -671,6 +695,43 @@ function prevCookingStep() {
   }
 }
 
+// ── Cooking Timer ──
+function startCookingTimer(seconds) {
+  if (!_cookingMode) return;
+  _cookingMode.timerSeconds = seconds;
+  _updateCookingTimerDisplay();
+}
+
+function _updateCookingTimerDisplay() {
+  const el = document.getElementById('cookingTimer');
+  if (!el || !_cookingMode) return;
+  if (_cookingMode.timerSeconds > 0) {
+    _cookingMode.timerSeconds--;
+    const m = Math.floor(_cookingMode.timerSeconds / 60);
+    const s = _cookingMode.timerSeconds % 60;
+    el.textContent = `⏱ 倒计时 ${m}:${String(s).padStart(2,'0')}`;
+    el.style.color = _cookingMode.timerSeconds <= 30 ? '#FF6B35' : '#fff';
+    if (_cookingMode.timerSeconds <= 0) {
+      el.textContent = '⏰ 时间到！';
+      toast('⏰ 这一步时间到啦');
+      _cookingMode.timerSeconds = 0;
+    }
+  }
+}
+
+function extractStepTimer(stepText) {
+  if (!stepText) return null;
+  const m = stepText.match(/(\d+)\s*(分|分钟|秒)/);
+  if (m) {
+    const num = parseInt(m[1]);
+    return m[2] === '秒' ? num : num * 60;
+  }
+  return null;
+}
+
+// Update overlay to include timer; called by _renderCookingOverlay
+function _updateCookingOverlay() { _renderCookingOverlay(); }
+
 function _renderCookingOverlay() {
   if (!_cookingMode) return;
   const m = _cookingMode;
@@ -680,11 +741,16 @@ function _renderCookingOverlay() {
   const stepText = typeof step === 'string' ? step : (step.text || '');
   const stepDetail = typeof step === 'string' ? '' : (step.detail || '');
   const isLast = cur === total - 1;
+  const suggestedSecs = extractStepTimer(stepDetail || stepText);
+  const elapsed = m.elapsedSeconds || 0;
+  const elapsedMin = Math.floor(elapsed / 60);
+  const elapsedSec = elapsed % 60;
 
   const html = `<div class="cooking-overlay" id="cookingModeOverlay" onclick="event.stopPropagation()">
     ${isLast ? `
       <div class="cooking-done">🎉 完成啦！</div>
       <div class="cooking-done-sub">${esc(stepText)}</div>
+      <div class="cooking-done-sub" style="margin-top:4px;font-size:13px">总用时 ${elapsedMin}:${String(elapsedSec).padStart(2,'0')}</div>
       <div style="margin-top:20px;display:flex;gap:12px;width:100%;max-width:300px;flex-direction:column">
         <button class="btn btn-primary btn-block" onclick="App.closeCookingMode();App.cookWithJournal('${m.recipe.id}')" style="min-height:48px">📸 去打个卡</button>
         <button class="btn btn-outline btn-block" onclick="App.closeCookingMode()" style="color:#fff;border-color:rgba(255,255,255,.4);min-height:48px">返回详情</button>
@@ -693,6 +759,14 @@ function _renderCookingOverlay() {
       <div class="cooking-step-num">第 ${cur + 1} / ${total} 步</div>
       <div class="cooking-step-title">${esc(stepText)}</div>
       ${stepDetail && stepDetail !== stepText ? `<div class="cooking-step-detail">${esc(stepDetail)}</div>` : ''}
+      <div style="display:flex;gap:12px;align-items:center;margin-top:12px;font-size:13px;opacity:.8">
+        <span>⏱ ${elapsedMin}:${String(elapsedSec).padStart(2,'0')}</span>
+        <span id="cookingTimer">${m.timerSeconds > 0 ? `⏱ 倒计时 ${Math.floor(m.timerSeconds/60)}:${String(m.timerSeconds%60).padStart(2,'0')}` : ''}</span>
+      </div>
+      ${suggestedSecs ? `
+      <div style="margin-top:8px">
+        <span class="filter-chip" style="border-color:rgba(255,255,255,.3);color:#fff;background:transparent" onclick="App.startCookingTimer(${suggestedSecs})">⏱ 建议计时 ${Math.floor(suggestedSecs/60)}分${suggestedSecs%60 ? suggestedSecs%60+'秒' : ''}</span>
+      </div>` : ''}
       <div class="cooking-progress">
         ${Array.from({length: total}, (_, i) =>
           `<span class="progress-dot${i < cur ? ' done' : i === cur ? ' current' : ''}"></span>`
@@ -707,10 +781,6 @@ function _renderCookingOverlay() {
   </div>`;
   document.getElementById('cookingModeOverlay')?.remove();
   document.body.insertAdjacentHTML('beforeend', html);
-}
-
-function _updateCookingOverlay() {
-  _renderCookingOverlay();
 }
 
 // ── Favorites ──
@@ -1823,6 +1893,13 @@ const App = {
   applyQuickScenarioFilter,
   // Cooking Mode
   openCookingMode, closeCookingMode, nextCookingStep, prevCookingStep,
+  startCookingTimer,
+  // Weekly Menu
+  showWeeklyMenu, showWeeklyMenuPicker, addRecipeToWeeklyMenu, removeRecipeFromWeeklyMenu, addWeeklyMenuToShoppingList,
+  // User Preferences
+  getUserCookingPreferences, saveUserCookingPreferences, savePreferences, loadPreferencesToForm,
+  // Recommendations
+  getPersonalizedRecommendations,
   // Unified Search
   performUnifiedSearch, handleSearchSubmit, exitSearchMode, sortSearchResults,
   getSearchHistory, clearSearchHistory,
@@ -1912,6 +1989,211 @@ function formatRelativeDate(d) {
   if (days <= 7) return `${days}天前`;
   if (days <= 30) return `${Math.floor(days/7)}周前`;
   return d.toLocaleDateString();
+}
+
+// ── Weekly Menu (localStorage) ──
+const DAYS = ['周一','周二','周三','周四','周五','周六','周日'];
+
+function getWeeklyMenu() {
+  try { return JSON.parse(localStorage.getItem('rm_weekly_menu') || '{}'); } catch (e) { return {}; }
+}
+function saveWeeklyMenu(menu) {
+  localStorage.setItem('rm_weekly_menu', JSON.stringify(menu));
+}
+function addRecipeToWeeklyMenu(recipeId, day) {
+  const menu = getWeeklyMenu();
+  if (!menu[day]) menu[day] = [];
+  if (menu[day].length >= 3) { toast(`⚠️ ${day}最多3道菜`); return; }
+  const r = getRecipeById(recipeId) || state.apiDetailCache[recipeId];
+  if (!r) { toast('❌ 菜谱数据丢失'); return; }
+  if (menu[day].find(x => x.id === recipeId)) { toast('已存在'); return; }
+  menu[day].push({ id: recipeId, title: r.title });
+  saveWeeklyMenu(menu);
+  toast(`✅ 已加入${day}`);
+}
+function removeRecipeFromWeeklyMenu(day, recipeId) {
+  const menu = getWeeklyMenu();
+  if (menu[day]) menu[day] = menu[day].filter(x => x.id !== recipeId);
+  saveWeeklyMenu(menu);
+  renderWeeklyMenuPage();
+}
+async function addWeeklyMenuToShoppingList() {
+  const menu = getWeeklyMenu();
+  let added = 0;
+  for (const day of DAYS) {
+    const items = menu[day] || [];
+    for (const item of items) {
+      const r = getRecipeById(item.id) || state.apiDetailCache[item.id];
+      if (r) { await addToShoppingList(r); added++; }
+    }
+  }
+  if (added > 0) toast(`🛒 已加入${added}道菜到购物清单`);
+  else toast('⚠️ 本周菜单为空');
+}
+function showWeeklyMenuPicker(recipeId) {
+  const html = `<div class="modal-overlay" id="weeklyMenuPicker" onclick="if(event.target===this)this.remove()">
+    <div class="modal-sheet">
+      <h3>📅 加入本周菜单</h3>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button class="btn btn-outline btn-block" onclick="App.addRecipeToWeeklyMenu('${recipeId}','${DAYS[new Date().getDay() === 0 ? 6 : new Date().getDay() - 1]}');document.getElementById('weeklyMenuPicker')?.remove()">📌 今天</button>
+        <button class="btn btn-outline btn-block" onclick="App.addRecipeToWeeklyMenu('${recipeId}','${DAYS[(new Date().getDay() === 0 ? 6 : new Date().getDay() - 1) + 1] || DAYS[0]}');document.getElementById('weeklyMenuPicker')?.remove()">📌 明天</button>
+        <button class="btn btn-outline btn-block" onclick="App.addRecipeToWeeklyMenu('${recipeId}','周六');document.getElementById('weeklyMenuPicker')?.remove()">📌 周末</button>
+        ${DAYS.map(d => `<button class="btn btn-ghost btn-block" style="justify-content:flex-start" onclick="App.addRecipeToWeeklyMenu('${recipeId}','${d}');document.getElementById('weeklyMenuPicker')?.remove()">${d}</button>`).join('')}
+      </div>
+      <button class="btn btn-outline btn-block" style="margin-top:8px;color:var(--text-muted)" onclick="document.getElementById('weeklyMenuPicker')?.remove()">取消</button>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function showWeeklyMenu() {
+  state.currentView = 'weeklyMenu';
+  renderWeeklyMenuPage();
+}
+function renderWeeklyMenuPage() {
+  const menu = getWeeklyMenu();
+  const app = document.getElementById('app');
+  let html = `<div class="content">
+    <div class="back-btn" onclick="App.navTo('home')">‹ 返回首页</div>
+    <div class="section-title">📅 本周菜单</div>
+    <div style="display:flex;gap:8px;margin-bottom:12px">
+      <button class="btn btn-outline btn-sm" onclick="App.addWeeklyMenuToShoppingList()">🛒 一键加入清单</button>
+    </div>`;
+  for (const day of DAYS) {
+    const items = menu[day] || [];
+    html += `<div class="shopping-group">
+      <div class="shopping-group-title">${day}${items.length ? ' · ' + items.length + '道' : ''}</div>`;
+    if (items.length === 0) {
+      html += '<div style="font-size:12px;color:var(--text-muted);padding:8px 0">暂无安排</div>';
+    } else {
+      items.forEach(item => {
+        html += `<div class="shop-item" style="justify-content:space-between">
+          <span style="font-size:14px;cursor:pointer" onclick="App.showDetail('${item.id}',false)">🍽️ ${esc(item.title)}</span>
+          <span class="shop-del" onclick="App.removeRecipeFromWeeklyMenu('${day}','${item.id}')">🗑</span>
+        </div>`;
+      });
+    }
+    html += '</div>';
+  }
+  html += '</div><div class="nav"><button onclick="App.navTo(\'home\')"><span class="ico">🏠</span>首页</button><button onclick="App.navTo(\'recipes\')"><span class="ico">📖</span>菜谱</button><button class="active"><span class="ico">📅</span>周菜单</button><button onclick="App.navTo(\'shop\')"><span class="ico">🛒</span>清单</button></div>';
+  app.innerHTML = html;
+}
+
+// ── User Cooking Preferences (localStorage) ──
+function getUserCookingPreferences() {
+  try {
+    return JSON.parse(localStorage.getItem('rm_prefs') || '{}');
+  } catch (e) { return {}; }
+}
+function saveUserCookingPreferences(prefs) {
+  localStorage.setItem('rm_prefs', JSON.stringify(prefs));
+  toast('✅ 偏好已保存');
+}
+function savePreferences() {
+  const flavors = [];
+  document.querySelectorAll('#prefFlavors .filter-chip.active').forEach(el => flavors.push(el.dataset.flavor));
+  const prefs = {
+    servings: document.getElementById('prefServings')?.value || 'any',
+    flavors,
+    avoid: document.getElementById('prefAvoid')?.value?.trim() || '',
+    time: document.getElementById('prefTime')?.value || 'any'
+  };
+  saveUserCookingPreferences(prefs);
+}
+function loadPreferencesToForm() {
+  const prefs = getUserCookingPreferences();
+  setTimeout(() => {
+    const s = document.getElementById('prefServings');
+    if (s && prefs.servings) s.value = prefs.servings;
+    const a = document.getElementById('prefAvoid');
+    if (a && prefs.avoid) a.value = prefs.avoid;
+    const t = document.getElementById('prefTime');
+    if (t && prefs.time) t.value = prefs.time;
+    const flavors = prefs.flavors || [];
+    document.querySelectorAll('#prefFlavors .filter-chip').forEach(el => {
+      if (flavors.includes(el.dataset.flavor)) el.classList.add('active');
+    });
+  }, 50);
+}
+function recipeMatchesPreferences(recipe, prefs) {
+  if (!prefs || !Object.keys(prefs).length) return true;
+  let score = 0, issues = [];
+  const tags = (recipe.tags || []).map(t => t.toLowerCase());
+  const cat = (recipe.category || '').toLowerCase();
+  const ingNames = (recipe.ingredients || []).map(i => (typeof i === 'string' ? i : i.name || '').toLowerCase());
+
+  // Check avoid ingredients
+  const avoid = (prefs.avoid || '').split(/[,，\s]+/).map(w => w.trim().toLowerCase()).filter(Boolean);
+  for (const a of avoid) {
+    if (ingNames.some(i => i.includes(a))) issues.push(`含${a}`);
+  }
+
+  // Check time preference
+  if (prefs.time && prefs.time !== 'any') {
+    const maxTime = prefs.time === '15m' ? 15 : prefs.time === '30m' ? 30 : prefs.time === '60m' ? 60 : Infinity;
+    if ((recipe.cook_time || 30) <= maxTime) score += 10;
+  }
+
+  // Check flavor
+  const flavorPrefs = prefs.flavors || [];
+  for (const f of flavorPrefs) {
+    if (tags.includes(f.toLowerCase())) score += 15;
+  }
+
+  return { score, issues, matches: issues.length === 0 };
+}
+
+// ── Smart Recommendations (rule-based, no AI) ──
+function getPersonalizedRecommendations() {
+  const prefs = getUserCookingPreferences();
+  const all = [...state.recipes, ...state.customRecipes];
+  const results = [];
+
+  // 1. Quick dinner for workday (30 min, easy/medium)
+  const quick = all.filter(r => (r.cook_time || 30) <= 30 && r.difficulty !== '困难' && (state.cookedMap[r.id]?.count || 0) < 5);
+  if (quick.length > 0) {
+    const pick = quick.sort(() => Math.random() - 0.5)[0];
+    results.push({ ...pick, recTag: '⚡ 下班快手菜', recReason: '30分钟内完成，适合工作日晚餐', recScore: 80 });
+  }
+
+  // 2. Couple meal (适合二人食)
+  const couple = all.filter(r => {
+    const tags = (r.tags || []);
+    const ing = r.ingredients?.length || 0;
+    return ing > 2 && ing <= 8 && r.difficulty !== '困难';
+  });
+  if (couple.length > 0) {
+    const pick = couple.sort(() => Math.random() - 0.5)[0];
+    results.push({ ...pick, recTag: '👫 二人食', recReason: '食材适中，适合两个人一起做', recScore: 75 });
+  }
+
+  // 3. You might want to cook again (faved but not cooked recently)
+  const favNotRecent = all.filter(r => {
+    if (!state.favorites.has(r.id)) return false;
+    const last = state.cookedMap[r.id]?.last;
+    if (!last) return true;
+    return new Date(last) < new Date(Date.now() - 14 * 86400000);
+  });
+  if (favNotRecent.length > 0) {
+    const pick = favNotRecent.sort(() => Math.random() - 0.5)[0];
+    results.push({ ...pick, recTag: '💭 你可能想再做', recReason: '你收藏过但很久没做了', recScore: 70 });
+  }
+
+  // 4. Weekend challenge (medium/hard)
+  const challenge = all.filter(r => (r.difficulty === '中等' || r.difficulty === '困难') && (state.cookedMap[r.id]?.count || 0) <= 2);
+  if (challenge.length > 0) {
+    const pick = challenge.sort(() => Math.random() - 0.5)[0];
+    results.push({ ...pick, recTag: '⭐ 周末挑战', recReason: '适合周末慢慢挑战', recScore: 65 });
+  }
+
+  // Apply preference scoring
+  results.forEach(r => {
+    const { score } = recipeMatchesPreferences(r, prefs);
+    r.recScore = (r.recScore || 50) + score;
+  });
+  results.sort((a, b) => b.recScore - a.recScore);
+
+  return results.slice(0, 6);
 }
 
 // ── Initialize ──

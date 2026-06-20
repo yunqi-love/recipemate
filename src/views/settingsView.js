@@ -69,13 +69,35 @@ export function showSettings() {
         <p style="font-size:11px;color:#999;margin-top:4px">默认关闭。启用后会在中文菜谱无结果时搜索英文菜谱。</p>
       </div>
 
-      <button class="btn btn-primary btn-block" onclick="App.saveSettings()">💾 保存</button>
+      <div class="settings-group" style="margin-top:8px">
+        <label style="font-size:15px">🍽️ 做饭偏好</label>
+        <p style="font-size:11px;color:var(--text-muted);margin-bottom:8px">帮助推荐更符合你口味的菜</p>
+        <label class="form-label">常用人数</label>
+        <select id="prefServings" style="width:100%;padding:10px 12px;border-radius:var(--radius-btn);border:1px solid var(--border);font-size:14px;margin-bottom:8px">
+          <option value="any">不限</option><option value="1">一人食</option><option value="2">二人食</option><option value="3">家庭餐</option>
+        </select>
+        <label class="form-label">口味偏好（多选）</label>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px" id="prefFlavors">
+          ${['清淡','下饭','微辣','减脂','高蛋白'].map(f => `<span class="filter-chip" data-flavor="${f}" onclick="this.classList.toggle('active')">${f}</span>`).join('')}
+        </div>
+        <label class="form-label">不喜欢/忌口食材</label>
+        <input id="prefAvoid" placeholder="例如：香菜、葱、辣椒、内脏" style="width:100%;padding:10px 12px;border-radius:var(--radius-btn);border:1px solid var(--border);font-size:14px;margin-bottom:8px">
+        <label class="form-label">平时做饭时间</label>
+        <select id="prefTime" style="width:100%;padding:10px 12px;border-radius:var(--radius-btn);border:1px solid var(--border);font-size:14px;margin-bottom:8px">
+          <option value="any">不限</option><option value="15m">15分钟内</option><option value="30m">30分钟内</option><option value="60m">60分钟内</option><option value="weekend">周末慢慢做</option>
+        </select>
+        <button class="btn btn-outline btn-block" onclick="App.savePreferences()" style="border-color:#FF9800;color:#FF9800">💾 保存偏好</button>
+      </div>
+
+      <button class="btn btn-primary btn-block" onclick="App.saveSettings()">💾 保存 AI 设置</button>
       <button class="btn btn-outline btn-block" style="color:#F44336;border-color:#F44336;margin-top:4px" onclick="App.handleLogout()">🚪 退出登录</button>
       <button class="btn btn-outline btn-block" style="margin-top:4px" onclick="document.getElementById('settingsModal')?.remove()">取消</button>
     </div>
   </div>`;
 
   document.body.insertAdjacentHTML('beforeend', html);
+  // Load existing preferences after DOM is ready
+  setTimeout(() => { if (window.App?.loadPreferencesToForm) window.App.loadPreferencesToForm(); }, 80);
 }
 
 export function updateSetForm() {

@@ -162,7 +162,7 @@ function renderNav(current) {
   return `<div class="nav">
     <button onclick="App.navTo('home')"><span class="ico">🏠</span>首页</button>
     <button class="${current === 'recipes' || current === 'favorites' ? 'active' : ''}" onclick="App.navTo('recipes')"><span class="ico">📖</span>菜谱</button>
-    <button onclick="App.navTo('favorites')" style="font-size:11px"><span class="ico">❤️</span>收藏</button>
+    <button onclick="App.showWeeklyMenu()" style="font-size:11px"><span class="ico">📅</span>周菜单</button>
     <button class="${current === 'shop' ? 'active' : ''}" onclick="App.navTo('shop')"><span class="ico">🛒</span>清单</button>
   </div>`;
 }

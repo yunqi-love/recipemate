@@ -114,6 +114,7 @@ export function showDetail(id, isApi) {
       </div>
       <button class="btn btn-outline btn-block" style="margin-top:4px;border-color:#4CAF50;color:#4CAF50" onclick="App.saveApiRecipeToMyRecipes('${id}')">💾 保存到我的菜谱</button>
       `}
+      <button class="btn btn-outline btn-block" style="margin-top:4px;border-color:#FF9800;color:#FF9800" onclick="App.showWeeklyMenuPicker('${id}')">📅 加入本周菜单</button>
     </div>`;
   window.scrollTo(0, 0);
 }

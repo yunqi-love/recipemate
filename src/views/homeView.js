@@ -166,6 +166,12 @@ export function renderHome() {
     <div style="text-align:center;padding:12px;margin-bottom:calc(80px + var(--safe-bottom))">
       <button class="btn btn-outline btn-sm" onclick="App.navTo('recipes')" style="flex:none;padding:10px 30px">📖 浏览全部菜谱</button>
     </div>
+    <!-- Smart recommendations -->
+    <div style="padding:12px 16px 0" id="homeRecsArea">
+      <div class="section-title">💡 为你推荐</div>
+      <div id="homePersonalizedRecs"></div>
+    </div>
+
     ${renderNav('home')}`;
 }
 
@@ -254,7 +260,7 @@ export function renderNav(current) {
   return `<div class="nav">
     <button class="${current === 'home' ? 'active' : ''}" onclick="App.navTo('home')"><span class="ico">🏠</span>首页</button>
     <button class="${current === 'recipes' || current === 'favorites' ? 'active' : ''}" onclick="App.navTo('recipes')"><span class="ico">📖</span>菜谱</button>
-    <button onclick="App.navTo('favorites')" style="font-size:11px"><span class="ico">❤️</span>收藏</button>
+    <button onclick="App.showWeeklyMenu()" style="font-size:11px"><span class="ico">📅</span>周菜单</button>
     <button class="${current === 'shop' ? 'active' : ''}" onclick="App.navTo('shop')"><span class="ico">🛒</span>清单</button>
   </div>`;
 }
