@@ -43,6 +43,8 @@ export const state = {
   searchInputFocused: false,
   searchInputSelStart: 0,
   searchInputSelEnd: 0,
+  shouldRestoreSearchFocus: false,
+  searchFocusReason: null,
   // Recipe filter state (multi-dimension)
   recipeFilters: {
     quick: 'all',

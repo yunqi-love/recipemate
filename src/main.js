@@ -88,16 +88,16 @@ function render() {
   // Recipes / Favorites view
   app.innerHTML = renderRecipes();
   // Restore search input state after DOM replacement
-  requestAnimationFrame(() => restoreSearchFocus());
+  requestAnimationFrame(() => restoreSearchFocusIfNeeded());
 }
 
 // ── Navigation ──
 function navTo(view) {
+  clearSearchFocusState();
   state.currentView = view;
   state.currentFilter = 'all';
   state.currentDetailId = null;
   state.parentView = null;
-  // Only clear search when going to home/shop, keep for recipes/favorites
   if (view !== 'recipes' && view !== 'favorites') {
     state.searchKeyword = '';
   }
@@ -117,17 +117,18 @@ function setFilter(key) {
 // ── Search Input Handler (debounced, won't dismiss keyboard) ──
 function handleSearchInput(value) {
   state.searchKeyword = value || '';
-  // Save cursor position
   const si = document.getElementById('searchInput');
   if (si) {
     state.searchInputFocused = document.activeElement === si;
     state.searchInputSelStart = si.selectionStart || 0;
     state.searchInputSelEnd = si.selectionEnd || 0;
   }
-  // Debounce render — only re-render after user stops typing for 300ms
+  // Mark that we SHOULD restore focus after the upcoming debounced render —
+  // but ONLY because the user is actively typing
+  state.shouldRestoreSearchFocus = true;
+  state.searchFocusReason = 'typing';
   clearTimeout(state.searchDebounceTimer);
   state.searchDebounceTimer = setTimeout(() => {
-    // Only update results area, not full page — but for now re-render
     renderSearchResults();
   }, 300);
 }
@@ -136,29 +137,54 @@ function clearSearch() {
   state.searchKeyword = '';
   const si = document.getElementById('searchInput');
   if (si) si.value = '';
+  // Keep focus if user is on recipes/favorites — they're still interacting
+  state.shouldRestoreSearchFocus = true;
+  state.searchFocusReason = 'clear';
   render();
   setTimeout(() => {
     const si2 = document.getElementById('searchInput');
-    if (si2) si2.focus();
+    if (si2 && (state.currentView === 'recipes' || state.currentView === 'favorites')) {
+      si2.focus({ preventScroll: true });
+    }
   }, 50);
 }
 
 function renderSearchResults() {
-  // Only re-render if we're on the recipes view
   if (state.currentView !== 'recipes' && state.currentView !== 'favorites') return;
   render();
 }
 
-// Helper: restore search input focus after full render
-function restoreSearchFocus() {
+// Clear focus state — call on navigation, search submit, goBack
+function clearSearchFocusState() {
+  const active = document.activeElement;
+  if (active && typeof active.blur === 'function') active.blur();
+  state.shouldRestoreSearchFocus = false;
+  state.searchFocusReason = null;
+  state.searchInputFocused = false;
+}
+
+// Restore focus ONLY when user was actively typing and DOM was replaced by render
+function restoreSearchFocusIfNeeded() {
+  if (!state.shouldRestoreSearchFocus) return;
+  // Only restore if reason is typing — never for navigation or search submit
+  if (state.searchFocusReason !== 'typing' && state.searchFocusReason !== 'clear') return;
+  // Only restore on recipes or favorites views
+  if (state.currentView !== 'recipes' && state.currentView !== 'favorites') return;
+
   const si = document.getElementById('searchInput');
-  if (si && state.searchInputFocused) {
-    si.focus();
-    si.setSelectionRange(state.searchInputSelStart, state.searchInputSelEnd);
+  if (si) {
+    try {
+      si.focus({ preventScroll: true });
+      si.setSelectionRange(state.searchInputSelStart || si.value.length, state.searchInputSelEnd || si.value.length);
+    } catch (e) { /* ignore */ }
   }
+  // One-shot: clear after restoring
+  state.shouldRestoreSearchFocus = false;
+  state.searchFocusReason = null;
 }
 
 function goBack() {
+  clearSearchFocusState();
   state.currentDetailId = null;
   state.currentView = state.parentView || 'recipes';
   state.parentView = null;
@@ -281,7 +307,7 @@ function setRecipeFilter(group, value, isSingle) {
     // Sheet not open: commit directly and refresh list
     state.recipeFilters = deepCloneFilters(f);
     render();
-    requestAnimationFrame(() => restoreSearchFocus());
+    requestAnimationFrame(() => restoreSearchFocusIfNeeded());
   }
 }
 
@@ -342,7 +368,7 @@ function applyDraftFilters() {
   }
   _closeFilterSheet();
   render();
-  requestAnimationFrame(() => restoreSearchFocus());
+  requestAnimationFrame(() => restoreSearchFocusIfNeeded());
 }
 
 function dismissFilterSheet() {
@@ -378,7 +404,7 @@ function resetRecipeFilters() {
     state.recipeFilters = deepCloneFilters(FILTER_DEFAULTS);
     state.currentFilter = 'all';
     render();
-    requestAnimationFrame(() => restoreSearchFocus());
+    requestAnimationFrame(() => restoreSearchFocusIfNeeded());
     toast('✅ 已重置筛选');
   }
 }
@@ -1055,6 +1081,7 @@ function sortSearchResults(mode) {
 }
 
 function exitSearchMode() {
+  clearSearchFocusState();
   state.isSearchMode = false;
   state.searchKeyword = '';
   state.searchResults = null;
@@ -1065,6 +1092,7 @@ function exitSearchMode() {
 // Search submit handler (Enter key / search icon click)
 function handleSearchSubmit(event) {
   if (event) event.preventDefault();
+  clearSearchFocusState();
   const kw = document.getElementById('searchInput')?.value?.trim() || state.searchKeyword || '';
   if (!kw) return;
   state.currentView = 'search';
@@ -2048,12 +2076,10 @@ function showWeeklyMenuPicker(recipeId) {
 }
 
 function showWeeklyMenu() {
-  state.currentView = 'weeklyMenu';
-  renderWeeklyMenuPage();
+  navTo('weeklyMenu');
 }
 function renderWeeklyMenuPage() {
   const menu = getWeeklyMenu();
-  const app = document.getElementById('app');
   let html = `<div class="content">
     <div class="back-btn" onclick="App.navTo('home')">‹ 返回首页</div>
     <div class="section-title">📅 本周菜单</div>
@@ -2078,7 +2104,7 @@ function renderWeeklyMenuPage() {
   }
   html += '</div>';
   html += renderBottomNav('weeklyMenu');
-  app.innerHTML = html;
+  return html;
 }
 
 // ── User Cooking Preferences (localStorage) ──
