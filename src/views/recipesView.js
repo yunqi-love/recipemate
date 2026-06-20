@@ -1,6 +1,7 @@
 // RecipeMate — Recipes List View (unified search)
 import { state, getProficiency } from '../app.js';
 import { renderCard, escapeHtml } from '../components/recipeCard.js';
+import { renderBottomNav } from '../components/bottomNav.js';
 
 export function renderRecipes() {
   const kw = state.searchKeyword || '';
@@ -52,8 +53,7 @@ export function renderRecipes() {
       <span class="sicon">🔍</span>
       <input id="searchInput" placeholder="搜索菜名、食材、标签..." value="${escapeHtml(kw)}"
         oninput="App.handleSearchInput(this.value)"
-        onkeydown="if(event.key==='Enter')App.handleSearchSubmit(event)"
-        onfocus="if(!this.value)App.showSearchSuggestions()">
+        onkeydown="if(event.key==='Enter')App.handleSearchSubmit(event)">
       ${kw ? `<span class="sclear" onclick="App.clearSearch()">✕</span>`
         : `<span class="sicon" style="left:auto;right:32px;cursor:pointer" onclick="App.handleSearchSubmit()">🔍</span>`}
     </div>
@@ -93,7 +93,7 @@ export function renderRecipes() {
         : list.map(r => renderCard(r)).join('')
       }
     </div>
-    ${renderNav(state.currentView)}`;
+    ${renderBottomNav(state.currentView === 'favorites' ? 'favorites' : 'recipes')}`;
 }
 
 function renderQuickFilterChip(label, key) {
@@ -158,11 +158,3 @@ function getActiveFilterSummaryDisplay() {
   return parts;
 }
 
-function renderNav(current) {
-  return `<div class="nav">
-    <button onclick="App.navTo('home')"><span class="ico">🏠</span>首页</button>
-    <button class="${current === 'recipes' || current === 'favorites' ? 'active' : ''}" onclick="App.navTo('recipes')"><span class="ico">📖</span>菜谱</button>
-    <button onclick="App.showWeeklyMenu()" style="font-size:11px"><span class="ico">📅</span>周菜单</button>
-    <button class="${current === 'shop' ? 'active' : ''}" onclick="App.navTo('shop')"><span class="ico">🛒</span>清单</button>
-  </div>`;
-}

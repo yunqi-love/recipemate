@@ -1,6 +1,7 @@
 // RecipeMate — Home View v2 ("Tonight's Decision Center")
 import { state } from '../app.js';
 import { renderCard } from '../components/recipeCard.js';
+import { renderBottomNav } from '../components/bottomNav.js';
 
 export function renderHome() {
   const all = [...state.recipes, ...state.customRecipes];
@@ -172,7 +173,7 @@ export function renderHome() {
       <div id="homePersonalizedRecs"></div>
     </div>
 
-    ${renderNav('home')}`;
+    ${renderBottomNav('home')}`;
 }
 
 function getTimeGreeting() {
@@ -254,15 +255,6 @@ function formatRelativeTime(rid) {
   if (days <= 7) return `${days}天前`;
   if (days <= 30) return `${Math.floor(days/7)}周前`;
   return new Date(last).toLocaleDateString();
-}
-
-export function renderNav(current) {
-  return `<div class="nav">
-    <button class="${current === 'home' ? 'active' : ''}" onclick="App.navTo('home')"><span class="ico">🏠</span>首页</button>
-    <button class="${current === 'recipes' || current === 'favorites' ? 'active' : ''}" onclick="App.navTo('recipes')"><span class="ico">📖</span>菜谱</button>
-    <button onclick="App.showWeeklyMenu()" style="font-size:11px"><span class="ico">📅</span>周菜单</button>
-    <button class="${current === 'shop' ? 'active' : ''}" onclick="App.navTo('shop')"><span class="ico">🛒</span>清单</button>
-  </div>`;
 }
 
 export function renderTodayEatModal() {

@@ -1,6 +1,7 @@
 // RecipeMate — Shopping List View (recipe grouping + ingredient summary + copy)
 import { state } from '../app.js';
 import { groupShoppingItemsByRecipe, groupShoppingItemsByIngredient, copyShoppingListText } from '../stores/shoppingStore.js';
+import { renderBottomNav } from '../components/bottomNav.js';
 
 export function renderShop() {
   const mode = state.shopViewMode || 'recipe'; // 'recipe' or 'ingredient'
@@ -42,12 +43,7 @@ export function renderShop() {
         <button class="btn btn-outline btn-sm" onclick="App.clearShop()" style="border-color:#F44336;color:#F44336;min-width:80px">🗑 清空</button>
       </div>` : ''}
     </div>
-    <div class="nav">
-      <button onclick="App.navTo('home')"><span class="ico">🏠</span>首页</button>
-      <button onclick="App.navTo('recipes')"><span class="ico">📖</span>菜谱</button>
-      <button onclick="App.navTo('favorites')" style="font-size:11px"><span class="ico">❤️</span>收藏</button>
-      <button class="active"><span class="ico">🛒</span>清单</button>
-    </div>`;
+    ${renderBottomNav('shop')}`;
 }
 
 function renderRecipeView() {

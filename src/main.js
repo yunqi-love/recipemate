@@ -27,7 +27,8 @@ import { addToShoppingList, toggleShopItem, removeShopItem, clearShopItems, clea
 
 // Views
 import { renderAuth } from './views/authView.js';
-import { renderHome, renderNav, renderTodayEatModal } from './views/homeView.js';
+import { renderHome, renderTodayEatModal } from './views/homeView.js';
+import { renderBottomNav } from './components/bottomNav.js';
 import { renderRecipes } from './views/recipesView.js';
 import { showDetail, renderCookModal } from './views/detailView.js';
 import { renderShop } from './views/shopView.js';
@@ -50,6 +51,11 @@ function render() {
 
   if (state.currentView === 'shop') {
     app.innerHTML = renderShop();
+    return;
+  }
+
+  if (state.currentView === 'weeklyMenu') {
+    app.innerHTML = renderWeeklyMenuPage();
     return;
   }
 
@@ -1056,11 +1062,6 @@ function exitSearchMode() {
   render();
 }
 
-function showSearchSuggestions() {
-  // Just render to show history chips — no action needed
-  if (!state.searchKeyword) render();
-}
-
 // Search submit handler (Enter key / search icon click)
 function handleSearchSubmit(event) {
   if (event) event.preventDefault();
@@ -1877,7 +1878,7 @@ const App = {
   doClearCheckedShop, setShopViewMode, copyShoppingList, toggleIngredientGroup,
   // API Search
   apiSearch, showApiDetail,
-  handleSearchInput, clearSearch, showSearchSuggestions,
+  handleSearchInput, clearSearch,
   // AI Save
   aiSaveRecipe,
   saveApiRecipeToMyRecipes,
@@ -2075,7 +2076,8 @@ function renderWeeklyMenuPage() {
     }
     html += '</div>';
   }
-  html += '</div><div class="nav"><button onclick="App.navTo(\'home\')"><span class="ico">🏠</span>首页</button><button onclick="App.navTo(\'recipes\')"><span class="ico">📖</span>菜谱</button><button class="active"><span class="ico">📅</span>周菜单</button><button onclick="App.navTo(\'shop\')"><span class="ico">🛒</span>清单</button></div>';
+  html += '</div>';
+  html += renderBottomNav('weeklyMenu');
   app.innerHTML = html;
 }
 

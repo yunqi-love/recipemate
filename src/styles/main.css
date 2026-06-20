@@ -63,8 +63,8 @@ body{
   transition:box-shadow var(--transition-fast);
 }
 .search-row input:focus{box-shadow:0 4px 20px rgba(0,0,0,0.12)}
-.search-row .sicon{position:absolute;left:32px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--text-muted)}
-.search-row .sclear{position:absolute;right:32px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--text-muted);cursor:pointer;padding:4px}
+.search-row .sicon{position:absolute;left:32px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--text-muted);pointer-events:none}
+.search-row .sclear{position:absolute;right:32px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--text-muted);cursor:pointer;padding:4px;z-index:21}
 
 /* ── Buttons ── */
 .btn{
@@ -201,21 +201,21 @@ body{
 /* ── Navigation ── */
 .nav{
   position:fixed;bottom:0;left:50%;transform:translateX(-50%);
-  width:100%;max-width:480px;display:flex;background:var(--card-bg);
-  border-top:1px solid var(--border);z-index:100;
+  width:100%;max-width:480px;display:grid;grid-template-columns:repeat(5,1fr);
+  background:var(--card-bg);border-top:1px solid var(--border);z-index:100;
   padding-bottom:var(--safe-bottom);
 }
 .nav button{
-  flex:1;padding:8px 0 6px;border:none;background:none;
-  font-size:11px;color:var(--text-muted);cursor:pointer;
-  display:flex;flex-direction:column;align-items:center;gap:2px;
+  padding:5px 0 4px;border:none;background:none;
+  font-size:10px;color:var(--text-muted);cursor:pointer;
+  display:flex;flex-direction:column;align-items:center;gap:1px;
   transition:color var(--transition-fast);
   min-height:calc(var(--nav-height) - 8px);
-  -webkit-tap-highlight-color:transparent;
+  -webkit-tap-highlight-color:transparent;min-width:0;
 }
 .nav button:active{background:var(--primary-soft)}
 .nav button.active{color:var(--primary);font-weight:700}
-.nav button .ico{font-size:22px;line-height:1}
+.nav button .ico{font-size:20px;line-height:1.1}
 
 /* ── Back Button ── */
 .back-btn{
