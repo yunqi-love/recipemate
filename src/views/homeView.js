@@ -164,11 +164,11 @@ export function renderHome() {
       </div>
     </div>` : ''}
 
-    <div style="text-align:center;padding:12px;margin-bottom:calc(80px + var(--safe-bottom))">
+    <div style="text-align:center;padding:12px;margin-bottom:16px">
       <button class="btn btn-outline btn-sm" onclick="App.navTo('recipes')" style="flex:none;padding:10px 30px">📖 浏览全部菜谱</button>
     </div>
     <!-- Smart recommendations -->
-    <div style="padding:12px 16px 0" id="homeRecsArea">
+    <div style="padding:12px 16px 0;padding-bottom:calc(var(--nav-height) + 48px + var(--safe-bottom))" id="homeRecsArea">
       <div class="section-title">💡 为你推荐</div>
       <div id="homePersonalizedRecs"></div>
     </div>
