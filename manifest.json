@@ -1,0 +1,9 @@
+{
+  "name": "RecipeMate",
+  "short_name": "RecipeMate",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#FF6B35",
+  "theme_color": "#FF6B35",
+  "icons": []
+}
