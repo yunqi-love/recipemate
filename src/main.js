@@ -140,100 +140,157 @@ function goBack() {
 }
 
 // ── Recipe Filter Panel ──
+// Filter panel is in a SEPARATE #filter-sheet-root, never recreated on chip clicks.
+// Draft state holds in-progress changes; committed only on "完成".
+
+const FILTER_DEFAULTS = {
+  quick: 'all',
+  difficulty: 'all',
+  time: 'all',
+  type: [],
+  scene: [],
+  cuisine: [],
+  userStatus: 'all',
+  sort: 'default'
+};
+
+const FILTER_DEFS = [
+  { group: 'difficulty', label: '难度', keys: ['all','简单','中等','困难','大师级'], labels: ['全部','简单','中等','困难','大师级'], single: true },
+  { group: 'time', label: '时间', keys: ['all','15m','30m','60m','weekend'], labels: ['全部','15分钟内','30分钟内','60分钟内','适合周末慢慢做'], single: true },
+  { group: 'type', label: '菜品类型', keys: ['荤菜','素菜','主食','汤与粥','甜品','饮品','早餐','水产'], labels: ['荤菜','素菜','主食','汤羹','甜品','饮品','早餐','水产'], single: false },
+  { group: 'scene', label: '场景', keys: ['工作日晚餐','二人食','一人食','带饭便当','周末改善','招待朋友','清冰箱'], single: false },
+  { group: 'cuisine', label: '菜系/口味', keys: ['家常菜','川菜','粤菜','鲁菜','湘菜','江浙菜','东北菜','清淡','下饭菜','减脂','快手菜'], single: false },
+  { group: 'userStatus', label: '我的状态', keys: ['all','faved','cooked','notCooked','recent7','longTime','master'], labels: ['全部','已收藏','做过','没做过','最近7天做过','很久没做','大师级'], single: true },
+  { group: 'sort', label: '排序', keys: ['default','recent','cooked','mostCooked','fastest','easiest','favedFirst'], labels: ['默认推荐','最近保存','最近做过','做过次数最多','时间最短','难度从低到高','收藏优先'], single: true }
+];
+
+function deepCloneFilters(f) {
+  return {
+    quick: f.quick || 'all',
+    difficulty: f.difficulty || 'all',
+    time: f.time || 'all',
+    type: [...(f.type || [])],
+    scene: [...(f.scene || [])],
+    cuisine: [...(f.cuisine || [])],
+    userStatus: f.userStatus || 'all',
+    sort: f.sort || 'default'
+  };
+}
+
 function openRecipeFilterPanel() {
+  // Snapshot current filters into draft — don't touch recipeFilters directly
+  state.draftRecipeFilters = deepCloneFilters(state.recipeFilters);
+  state.isFilterSheetOpen = true;
   state.showFilterPanel = true;
-  renderFilterSheet();
+  _renderFilterSheetDOM();
 }
 
-function closeRecipeFilterPanel() {
-  state.showFilterPanel = false;
-  document.getElementById('filterSheet')?.remove();
-}
+function _renderFilterSheetDOM() {
+  // One-time render into #filter-sheet-root — only called on open
+  const root = document.getElementById('filter-sheet-root');
+  if (!root) return;
+  const f = state.draftRecipeFilters || state.recipeFilters;
+  const activeCount = _countActive(f);
+  const previewCount = _countPreview(f);
 
-function renderFilterSheet() {
-  document.getElementById('filterSheet')?.remove();
-  const f = state.recipeFilters;
-  const activeCount = getActiveFilterCount(f);
+  let sectionsHTML = '';
+  for (const def of FILTER_DEFS) {
+    sectionsHTML += _buildFilterSectionHTML(def, f[def.group]);
+  }
 
-  const html = `<div class="modal-overlay filter-overlay" id="filterSheet" onclick="if(event.target===this)App.closeRecipeFilterPanel()">
+  root.innerHTML = `<div class="modal-overlay filter-overlay" id="filterSheet" onclick="if(event.target===this)App.dismissFilterSheet()">
     <div class="filter-sheet">
       <div class="filter-sheet-header">
-        <span class="filter-sheet-title">筛选 · ${activeCount > 0 ? activeCount + '项' : '全部'}</span>
-        <span class="filter-sheet-close" onclick="App.closeRecipeFilterPanel()">✕</span>
+        <span class="filter-sheet-title" id="filterSheetTitle">筛选 · ${activeCount > 0 ? activeCount + '项' : '全部'}</span>
+        <span class="filter-sheet-close" onclick="App.dismissFilterSheet()">✕</span>
       </div>
-      <div class="filter-sheet-body">
-        ${renderFilterSection('难度', 'difficulty', ['all','简单','中等','困难','大师级'], ['全部','简单','中等','困难','大师级'], f.difficulty, true)}
-        ${renderFilterSection('时间', 'time', ['all','15m','30m','60m','weekend'], ['全部','15分钟内','30分钟内','60分钟内','适合周末慢慢做'], f.time, true)}
-        ${renderFilterSectionMulti('菜品类型', 'type', ['荤菜','素菜','主食','汤与粥','甜品','饮品','早餐','水产'], ['荤菜','素菜','主食','汤羹','甜品','饮品','早餐','水产'], f.type)}
-        ${renderFilterSectionMulti('场景', 'scene', ['工作日晚餐','二人食','一人食','带饭便当','周末改善','招待朋友','清冰箱'], f.scene)}
-        ${renderFilterSectionMulti('菜系/口味', 'cuisine', ['家常菜','川菜','粤菜','鲁菜','湘菜','江浙菜','东北菜','清淡','下饭菜','减脂','快手菜'], f.cuisine)}
-        ${renderFilterSection('我的状态', 'userStatus', ['all','faved','cooked','notCooked','recent7','longTime','master'], ['全部','已收藏','做过','没做过','最近7天做过','很久没做','大师级'], f.userStatus, true)}
-        ${renderFilterSection('排序', 'sort', ['default','recent','cooked','mostCooked','fastest','easiest','favedFirst'], ['默认推荐','最近保存','最近做过','做过次数最多','时间最短','难度从低到高','收藏优先'], f.sort, true)}
-      </div>
+      <div class="filter-sheet-body" id="filterSheetBody">${sectionsHTML}</div>
       <div class="filter-sheet-footer">
-        <button class="btn btn-outline" onclick="App.resetRecipeFilters()" style="flex:1">🔄 重置</button>
-        <button class="btn btn-primary" onclick="App.closeRecipeFilterPanel()" style="flex:2">✅ 完成</button>
+        <button class="btn btn-outline" onclick="App.resetDraftFilters()" style="flex:1">🔄 重置</button>
+        <div style="flex:1;display:flex;align-items:center;justify-content:center;font-size:12px;color:#999" id="filterPreviewCount">${previewCount > 0 ? '约 ' + previewCount + ' 道' : ''}</div>
+        <button class="btn btn-primary" onclick="App.applyDraftFilters()" style="flex:2">✅ 完成</button>
       </div>
     </div>
   </div>`;
-  document.body.insertAdjacentHTML('beforeend', html);
 }
 
-function renderFilterSection(label, group, keys, labels, current, isSingle) {
-  const items = keys.map((k, i) => {
-    const active = isSingle ? current === k : (Array.isArray(current) && current.includes(k));
-    return `<span class="filter-chip${active ? ' active' : ''}" onclick="App.setRecipeFilter('${group}','${k}',${isSingle})">${labels[i] || k}</span>`;
+function _buildFilterSectionHTML(def, current) {
+  const items = def.keys.map((k, i) => {
+    let active;
+    if (def.single) {
+      active = current === k;
+    } else {
+      active = Array.isArray(current) && current.includes(k);
+    }
+    const label = (def.labels || def.keys)[i];
+    return `<span class="filter-chip filter-chip-${def.group}${active ? ' active' : ''}" data-group="${def.group}" data-value="${k}" data-single="${def.single}" onclick="App.setRecipeFilter('${def.group}','${k}',${def.single})">${label}</span>`;
   }).join('');
-  return `<div class="filter-section"><div class="filter-section-title">${label}</div><div class="filter-section-chips">${items}</div></div>`;
+  return `<div class="filter-section"><div class="filter-section-title">${def.label}</div><div class="filter-section-chips" id="filter-chips-${def.group}">${items}</div></div>`;
 }
 
-function renderFilterSectionMulti(label, group, keys, labels, current) {
-  const useLabels = labels || keys;
-  const items = keys.map((k, i) => {
-    const active = Array.isArray(current) && current.includes(k);
-    return `<span class="filter-chip${active ? ' active' : ''}" onclick="App.setRecipeFilter('${group}','${k}',false)">${useLabels[i] || k}</span>`;
-  }).join('');
-  return `<div class="filter-section"><div class="filter-section-title">${label}</div><div class="filter-section-chips">${items}</div></div>`;
-}
-
+// ── Draft filter mutations (local DOM only, no render()) ──
 function setRecipeFilter(group, value, isSingle) {
-  if (!state.recipeFilters) state.recipeFilters = {};
+  // Always operate on draft when sheet is open
+  const f = state.isFilterSheetOpen ? state.draftRecipeFilters : state.recipeFilters;
+  if (!f) return;
+
   if (isSingle) {
-    state.recipeFilters[group] = value;
+    f[group] = value;
   } else {
-    // Multi-select: toggle
-    const arr = state.recipeFilters[group] || [];
+    const arr = f[group] || [];
     const idx = arr.indexOf(value);
     if (idx >= 0) arr.splice(idx, 1);
     else arr.push(value);
-    state.recipeFilters[group] = arr;
+    f[group] = arr;
   }
-  // Re-render the filter sheet in place
-  renderFilterSheet();
-  // Apply filters and update recipe list
-  render();
-  requestAnimationFrame(() => restoreSearchFocus());
+
+  if (state.isFilterSheetOpen) {
+    // LOCAL updates only — no DOM replacement, no animation replay
+    _updateFilterChipStates(group, f[group], isSingle);
+    _updateFilterSheetSummary();
+    _updateFilterPreviewCount();
+    // Do NOT call render() or renderFilterSheet()
+  } else {
+    // Sheet not open: commit directly and refresh list
+    state.recipeFilters = deepCloneFilters(f);
+    render();
+    requestAnimationFrame(() => restoreSearchFocus());
+  }
 }
 
-function resetRecipeFilters() {
-  state.recipeFilters = {
-    quick: 'all',
-    difficulty: 'all',
-    time: 'all',
-    type: [],
-    scene: [],
-    cuisine: [],
-    userStatus: 'all',
-    sort: 'default'
-  };
-  state.currentFilter = 'all';
-  renderFilterSheet();
-  render();
-  requestAnimationFrame(() => restoreSearchFocus());
-  toast('✅ 已重置筛选');
+function _updateFilterChipStates(group, current, isSingle) {
+  const container = document.getElementById('filter-chips-' + group);
+  if (!container) return;
+  const chips = container.querySelectorAll('.filter-chip');
+  chips.forEach(chip => {
+    const v = chip.dataset.value;
+    let active;
+    if (isSingle) {
+      active = current === v;
+    } else {
+      active = Array.isArray(current) && current.includes(v);
+    }
+    chip.classList.toggle('active', active);
+  });
 }
 
-function getActiveFilterCount(f) {
+function _updateFilterSheetSummary() {
+  const titleEl = document.getElementById('filterSheetTitle');
+  if (!titleEl) return;
+  const f = state.draftRecipeFilters || state.recipeFilters;
+  const n = _countActive(f);
+  titleEl.textContent = '筛选 · ' + (n > 0 ? n + '项' : '全部');
+}
+
+function _updateFilterPreviewCount() {
+  const el = document.getElementById('filterPreviewCount');
+  if (!el) return;
+  const f = state.draftRecipeFilters || state.recipeFilters;
+  const n = _countPreview(f);
+  el.textContent = n > 0 ? '约 ' + n + ' 道' : '';
+}
+
+function _countActive(f) {
   let count = 0;
   if (f.difficulty && f.difficulty !== 'all') count++;
   if (f.time && f.time !== 'all') count++;
@@ -243,6 +300,65 @@ function getActiveFilterCount(f) {
   if (f.userStatus && f.userStatus !== 'all') count++;
   if (f.sort && f.sort !== 'default') count++;
   return count;
+}
+
+function _countPreview(f) {
+  const all = [...state.recipes, ...state.customRecipes];
+  const filtered = applyRecipeFilters(all, f);
+  return filtered.length;
+}
+
+// ── Commit / Dismiss / Reset ──
+function applyDraftFilters() {
+  if (state.draftRecipeFilters) {
+    state.recipeFilters = deepCloneFilters(state.draftRecipeFilters);
+  }
+  _closeFilterSheet();
+  render();
+  requestAnimationFrame(() => restoreSearchFocus());
+}
+
+function dismissFilterSheet() {
+  // Discard draft — don't apply changes
+  _closeFilterSheet();
+}
+
+function _closeFilterSheet() {
+  state.draftRecipeFilters = null;
+  state.isFilterSheetOpen = false;
+  state.showFilterPanel = false;
+  const root = document.getElementById('filter-sheet-root');
+  if (root) root.innerHTML = '';
+}
+
+function resetDraftFilters() {
+  // Reset DRAFT only — keep sheet open, no animation
+  state.draftRecipeFilters = deepCloneFilters(FILTER_DEFAULTS);
+  state.currentFilter = 'all';
+  // Update all chip groups locally
+  for (const def of FILTER_DEFS) {
+    _updateFilterChipStates(def.group, state.draftRecipeFilters[def.group], def.single);
+  }
+  _updateFilterSheetSummary();
+  _updateFilterPreviewCount();
+}
+
+// Legacy: resetRecipeFilters called from outside the sheet (e.g., quick filter bar reset)
+function resetRecipeFilters() {
+  if (state.isFilterSheetOpen) {
+    resetDraftFilters();
+  } else {
+    state.recipeFilters = deepCloneFilters(FILTER_DEFAULTS);
+    state.currentFilter = 'all';
+    render();
+    requestAnimationFrame(() => restoreSearchFocus());
+    toast('✅ 已重置筛选');
+  }
+}
+
+// Legacy close wrapper for HTML onclick references
+function closeRecipeFilterPanel() {
+  applyDraftFilters();
 }
 
 function applyRecipeFilters(recipes, filters) {
@@ -1459,6 +1575,7 @@ const App = {
   showTodayEat, doTodayRecommend, showTodayDetail, toggleTodayTag, updateTodayOptions,
   // Filter Panel
   openRecipeFilterPanel, closeRecipeFilterPanel, setRecipeFilter, resetRecipeFilters,
+  applyDraftFilters, dismissFilterSheet, resetDraftFilters,
   applyQuickScenarioFilter,
   // Journal
   deleteJournalEntry,

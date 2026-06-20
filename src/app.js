@@ -54,7 +54,9 @@ export const state = {
     userStatus: 'all',
     sort: 'default'
   },
-  showFilterPanel: false
+  showFilterPanel: false,
+  isFilterSheetOpen: false,
+  draftRecipeFilters: null
 };
 
 export function getProficiency(count) {
