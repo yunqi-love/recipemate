@@ -99,7 +99,7 @@ export function showDetail(id, isApi) {
       <div class="action-row">
         <button class="btn ${state.favorites.has(id) ? 'btn-primary' : 'btn-outline'}" onclick="App.favClick('${id}')">${state.favorites.has(id) ? '❤️ 已收藏' : '🤍 收藏'}</button>
       </div>
-      <button class="btn btn-outline btn-block" style="margin-top:4px;border-color:#4CAF50;color:#4CAF50" onclick="App.aiSaveRecipe('${id}')">🤖 AI 重构并保存到我的菜谱</button>
+      <button class="btn btn-outline btn-block" style="margin-top:4px;border-color:#4CAF50;color:#4CAF50" onclick="App.saveApiRecipeToMyRecipes('${id}')">💾 保存到我的菜谱</button>
       `}
     </div>`;
   window.scrollTo(0, 0);

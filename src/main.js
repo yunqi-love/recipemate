@@ -408,6 +408,80 @@ async function aiSaveRecipe(id) {
   render();
 }
 
+// ── Save API Recipe Directly to My Recipes (no AI) ──
+async function saveApiRecipeToMyRecipes(id) {
+  // 1. Get full recipe — priority: apiDetailCache > source detail > apiResults > getRecipeById
+  let r = state.apiDetailCache[id];
+
+  if (!r || !r.title || !Array.isArray(r.ingredients) || !Array.isArray(r.steps)) {
+    // Try source detail API
+    const full = await getSourceRecipeDetail(id);
+    if (full) {
+      r = full;
+      state.apiDetailCache[id] = r;
+    }
+  }
+
+  if (!r || !r.title) {
+    // Fallback to apiResults
+    r = (state.apiResults || []).find(x => x.id === id);
+  }
+
+  if (!r || !r.title) {
+    // Last resort: getRecipeById
+    r = getRecipeById(id);
+  }
+
+  if (!r || !r.title) {
+    toast('❌ 菜谱数据丢失，请重新搜索');
+    return;
+  }
+
+  // 2. Validate ingredients and steps
+  const ingredients = Array.isArray(r.ingredients) ? r.ingredients : [];
+  const steps = Array.isArray(r.steps) ? r.steps : [];
+
+  if (ingredients.length === 0 || steps.length === 0) {
+    toast('⚠️ 当前菜谱缺少食材或步骤，不能直接保存。请先补充或使用编辑功能。');
+    return;
+  }
+
+  // 3. Check for duplicate title
+  const existed = state.customRecipes.find(x =>
+    x.title === (r.title || '') || x.title === (r.name || '')
+  );
+  if (existed) {
+    const ok = confirm(`我的菜谱中已经有《${existed.title}》，是否仍然再保存一份？`);
+    if (!ok) {
+      toast('已取消保存');
+      return;
+    }
+  }
+
+  // 4. Build save data
+  const saveData = {
+    title: r.title || r.name || '',
+    desc: r.description || r.desc || '',
+    diff: r.difficulty || r.diff || '中等',
+    time: r.cook_time || r.cookTime || r.time || 30,
+    img: r.image_url || r.img || null,
+    ing: ingredients,
+    steps: steps,
+    tags: r.tags || []
+  };
+
+  // 5. Save
+  const saved = await saveCustomRecipe(saveData, null);
+  if (saved) {
+    toast('✅ 已保存到我的菜谱');
+    await loadAllData();
+    state.currentView = 'recipes';
+    render();
+  } else {
+    toast('❌ 保存失败，请稍后重试');
+  }
+}
+
 // ── Custom Recipe Form ──
 function createRecipe() {
   state.currentView = 'customForm';
@@ -966,6 +1040,7 @@ const App = {
   apiSearch, showApiDetail,
   // AI Save
   aiSaveRecipe,
+  saveApiRecipeToMyRecipes,
   // Settings
   showSettings, updateSetForm, saveSettings: doSaveSettings,
   testAI: doTestAI,
