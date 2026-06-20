@@ -51,6 +51,7 @@ export function showDetail(id, isApi) {
         <span class="badge ${diffCls}">${escapeHtml(r.difficulty || '中等')}</span>
         <span style="font-size:13px;color:#999">⏱ ${r.cook_time || 20} 分钟</span>
         <span class="prof-badge ${prof.cls}" onclick="App.adjustCount('${id}')">${prof.emoji} ${prof.level}（${count}次）</span>
+        ${count >= 6 ? '<span class="mastery-tag mastery-gold">⭐ 拿手菜</span>' : count >= 3 ? '<span class="mastery-tag mastery-silver">🔥 逐渐熟练</span>' : count >= 1 ? '<span class="mastery-tag mastery-bronze">🌱 刚开始练</span>' : ''}
       </div>
       <div style="display:flex;flex-wrap:wrap;gap:6px">${tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</div>
       <div class="section-title">🥬 食材</div>
@@ -91,7 +92,10 @@ export function showDetail(id, isApi) {
       ${recipeJournals.length === 0 ? '<div class="empty" style="padding:20px">还没有打卡记录<br>做完菜点上面按钮拍照记录吧~</div>' : ''}
       ${recipeJournals.map(j => `
         <div class="journal-entry">
-          <div class="j-date">🕐 ${new Date(j.cooked_at).toLocaleString()}</div>
+          <div class="j-header">
+            <div class="j-date">🕐 ${new Date(j.cooked_at).toLocaleString()}</div>
+            <button class="journal-delete-btn" onclick="event.stopPropagation();App.deleteJournalEntry('${j.id}')" title="删除记录">🗑</button>
+          </div>
           ${j.photo_url ? `<img src="${j.photo_url}" alt="成品照" loading="lazy">` : ''}
           ${j.notes ? `<div class="j-notes">💬 ${escapeHtml(j.notes)}</div>` : ''}
         </div>`).join('')}

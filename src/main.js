@@ -22,8 +22,8 @@ import {
   saveCustomRecipe, updateCustomRecipe, deleteCustomRecipe,
   toggleFav, uploadImage
 } from './stores/recipeStore.js';
-import { doMarkCooked, incrementCooked, decreaseCooked, getJournalForRecipe } from './stores/userStateStore.js';
-import { addToShoppingList, toggleShopItem, removeShopItem, clearShopItems } from './stores/shoppingStore.js';
+import { doMarkCooked, incrementCooked, decreaseCooked, getJournalForRecipe, deleteCookingJournal } from './stores/userStateStore.js';
+import { addToShoppingList, toggleShopItem, removeShopItem, clearShopItems, clearCheckedShopItems, groupShoppingItemsByRecipe } from './stores/shoppingStore.js';
 
 // Views
 import { renderAuth } from './views/authView.js';
@@ -60,6 +60,8 @@ function render() {
 
   // Recipes / Favorites view
   app.innerHTML = renderRecipes();
+  // Restore search input state after DOM replacement
+  requestAnimationFrame(() => restoreSearchFocus());
 }
 
 // ── Navigation ──
@@ -68,14 +70,65 @@ function navTo(view) {
   state.currentFilter = 'all';
   state.currentDetailId = null;
   state.parentView = null;
-  const si = document.getElementById('searchInput');
-  if (si) si.value = '';
+  // Only clear search when going to home/shop, keep for recipes/favorites
+  if (view !== 'recipes' && view !== 'favorites') {
+    state.searchKeyword = '';
+  }
   render();
 }
 
 function setFilter(key) {
   state.currentFilter = key;
+  state.recipeFilters.quick = key === 'all' ? 'all' :
+    key === 'faved' ? 'faved' :
+    key === 'recent' ? 'recent' :
+    key === 'quick' ? 'quick' :
+    key === 'weekend' ? 'weekend' : key;
   render();
+}
+
+// ── Search Input Handler (debounced, won't dismiss keyboard) ──
+function handleSearchInput(value) {
+  state.searchKeyword = value || '';
+  // Save cursor position
+  const si = document.getElementById('searchInput');
+  if (si) {
+    state.searchInputFocused = document.activeElement === si;
+    state.searchInputSelStart = si.selectionStart || 0;
+    state.searchInputSelEnd = si.selectionEnd || 0;
+  }
+  // Debounce render — only re-render after user stops typing for 300ms
+  clearTimeout(state.searchDebounceTimer);
+  state.searchDebounceTimer = setTimeout(() => {
+    // Only update results area, not full page — but for now re-render
+    renderSearchResults();
+  }, 300);
+}
+
+function clearSearch() {
+  state.searchKeyword = '';
+  const si = document.getElementById('searchInput');
+  if (si) si.value = '';
+  render();
+  setTimeout(() => {
+    const si2 = document.getElementById('searchInput');
+    if (si2) si2.focus();
+  }, 50);
+}
+
+function renderSearchResults() {
+  // Only re-render if we're on the recipes view
+  if (state.currentView !== 'recipes' && state.currentView !== 'favorites') return;
+  render();
+}
+
+// Helper: restore search input focus after full render
+function restoreSearchFocus() {
+  const si = document.getElementById('searchInput');
+  if (si && state.searchInputFocused) {
+    si.focus();
+    si.setSelectionRange(state.searchInputSelStart, state.searchInputSelEnd);
+  }
 }
 
 function goBack() {
@@ -84,6 +137,361 @@ function goBack() {
   state.parentView = null;
   render();
   requestAnimationFrame(() => window.scrollTo({ top: state.savedScrollY || 0, behavior: 'instant' }));
+}
+
+// ── Recipe Filter Panel ──
+function openRecipeFilterPanel() {
+  state.showFilterPanel = true;
+  renderFilterSheet();
+}
+
+function closeRecipeFilterPanel() {
+  state.showFilterPanel = false;
+  document.getElementById('filterSheet')?.remove();
+}
+
+function renderFilterSheet() {
+  document.getElementById('filterSheet')?.remove();
+  const f = state.recipeFilters;
+  const activeCount = getActiveFilterCount(f);
+
+  const html = `<div class="modal-overlay filter-overlay" id="filterSheet" onclick="if(event.target===this)App.closeRecipeFilterPanel()">
+    <div class="filter-sheet">
+      <div class="filter-sheet-header">
+        <span class="filter-sheet-title">筛选 · ${activeCount > 0 ? activeCount + '项' : '全部'}</span>
+        <span class="filter-sheet-close" onclick="App.closeRecipeFilterPanel()">✕</span>
+      </div>
+      <div class="filter-sheet-body">
+        ${renderFilterSection('难度', 'difficulty', ['all','简单','中等','困难','大师级'], ['全部','简单','中等','困难','大师级'], f.difficulty, true)}
+        ${renderFilterSection('时间', 'time', ['all','15m','30m','60m','weekend'], ['全部','15分钟内','30分钟内','60分钟内','适合周末慢慢做'], f.time, true)}
+        ${renderFilterSectionMulti('菜品类型', 'type', ['荤菜','素菜','主食','汤与粥','甜品','饮品','早餐','水产'], ['荤菜','素菜','主食','汤羹','甜品','饮品','早餐','水产'], f.type)}
+        ${renderFilterSectionMulti('场景', 'scene', ['工作日晚餐','二人食','一人食','带饭便当','周末改善','招待朋友','清冰箱'], f.scene)}
+        ${renderFilterSectionMulti('菜系/口味', 'cuisine', ['家常菜','川菜','粤菜','鲁菜','湘菜','江浙菜','东北菜','清淡','下饭菜','减脂','快手菜'], f.cuisine)}
+        ${renderFilterSection('我的状态', 'userStatus', ['all','faved','cooked','notCooked','recent7','longTime','master'], ['全部','已收藏','做过','没做过','最近7天做过','很久没做','大师级'], f.userStatus, true)}
+        ${renderFilterSection('排序', 'sort', ['default','recent','cooked','mostCooked','fastest','easiest','favedFirst'], ['默认推荐','最近保存','最近做过','做过次数最多','时间最短','难度从低到高','收藏优先'], f.sort, true)}
+      </div>
+      <div class="filter-sheet-footer">
+        <button class="btn btn-outline" onclick="App.resetRecipeFilters()" style="flex:1">🔄 重置</button>
+        <button class="btn btn-primary" onclick="App.closeRecipeFilterPanel()" style="flex:2">✅ 完成</button>
+      </div>
+    </div>
+  </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+}
+
+function renderFilterSection(label, group, keys, labels, current, isSingle) {
+  const items = keys.map((k, i) => {
+    const active = isSingle ? current === k : (Array.isArray(current) && current.includes(k));
+    return `<span class="filter-chip${active ? ' active' : ''}" onclick="App.setRecipeFilter('${group}','${k}',${isSingle})">${labels[i] || k}</span>`;
+  }).join('');
+  return `<div class="filter-section"><div class="filter-section-title">${label}</div><div class="filter-section-chips">${items}</div></div>`;
+}
+
+function renderFilterSectionMulti(label, group, keys, labels, current) {
+  const useLabels = labels || keys;
+  const items = keys.map((k, i) => {
+    const active = Array.isArray(current) && current.includes(k);
+    return `<span class="filter-chip${active ? ' active' : ''}" onclick="App.setRecipeFilter('${group}','${k}',false)">${useLabels[i] || k}</span>`;
+  }).join('');
+  return `<div class="filter-section"><div class="filter-section-title">${label}</div><div class="filter-section-chips">${items}</div></div>`;
+}
+
+function setRecipeFilter(group, value, isSingle) {
+  if (!state.recipeFilters) state.recipeFilters = {};
+  if (isSingle) {
+    state.recipeFilters[group] = value;
+  } else {
+    // Multi-select: toggle
+    const arr = state.recipeFilters[group] || [];
+    const idx = arr.indexOf(value);
+    if (idx >= 0) arr.splice(idx, 1);
+    else arr.push(value);
+    state.recipeFilters[group] = arr;
+  }
+  // Re-render the filter sheet in place
+  renderFilterSheet();
+  // Apply filters and update recipe list
+  render();
+  requestAnimationFrame(() => restoreSearchFocus());
+}
+
+function resetRecipeFilters() {
+  state.recipeFilters = {
+    quick: 'all',
+    difficulty: 'all',
+    time: 'all',
+    type: [],
+    scene: [],
+    cuisine: [],
+    userStatus: 'all',
+    sort: 'default'
+  };
+  state.currentFilter = 'all';
+  renderFilterSheet();
+  render();
+  requestAnimationFrame(() => restoreSearchFocus());
+  toast('✅ 已重置筛选');
+}
+
+function getActiveFilterCount(f) {
+  let count = 0;
+  if (f.difficulty && f.difficulty !== 'all') count++;
+  if (f.time && f.time !== 'all') count++;
+  if (f.type && f.type.length > 0) count++;
+  if (f.scene && f.scene.length > 0) count++;
+  if (f.cuisine && f.cuisine.length > 0) count++;
+  if (f.userStatus && f.userStatus !== 'all') count++;
+  if (f.sort && f.sort !== 'default') count++;
+  return count;
+}
+
+function applyRecipeFilters(recipes, filters) {
+  if (!filters) return recipes;
+
+  let list = recipes;
+
+  // Quick filters (top bar shortcuts)
+  if (filters.quick === 'faved') {
+    list = list.filter(r => state.favorites.has(r.id));
+  } else if (filters.quick === 'recent') {
+    list = list.filter(r => (state.cookedMap[r.id]?.count || 0) > 0)
+      .sort((a, b) => new Date(state.cookedMap[b.id]?.last || 0) - new Date(state.cookedMap[a.id]?.last || 0));
+  } else if (filters.quick === 'quick') {
+    list = list.filter(r => r.cook_time <= 30 && r.difficulty !== '困难');
+  } else if (filters.quick === 'weekend') {
+    list = list.filter(r => r.difficulty === '中等' || r.difficulty === '困难');
+  } else if (filters.quick === 'duo') {
+    list = list; // all recipes for duo
+  }
+
+  // Difficulty
+  if (filters.difficulty && filters.difficulty !== 'all') {
+    if (filters.difficulty === '大师级') {
+      list = list.filter(r => (state.proficiency[r.id]?.level || '新手') === '大师');
+    } else {
+      list = list.filter(r => r.difficulty === filters.difficulty);
+    }
+  }
+
+  // Time
+  if (filters.time && filters.time !== 'all') {
+    const maxTime = filters.time === '15m' ? 15 : filters.time === '30m' ? 30 : filters.time === '60m' ? 60 : Infinity;
+    if (maxTime < Infinity) {
+      list = list.filter(r => (r.cook_time || 30) <= maxTime);
+    }
+    // 'weekend' = no time limit, keep all
+  }
+
+  // Type (multi-select)
+  if (filters.type && filters.type.length > 0) {
+    list = list.filter(r => {
+      const cat = r.category || '';
+      const tags = r.tags || [];
+      return filters.type.some(t =>
+        cat === t || tags.includes(t) || r.title.includes(t)
+      );
+    });
+  }
+
+  // Scene (multi-select)
+  if (filters.scene && filters.scene.length > 0) {
+    list = list.filter(r => {
+      const tags = r.tags || [];
+      const title = r.title || '';
+      const ing = (r.ingredients || []).map(i => (typeof i === 'string' ? i : i.name || ''));
+      return filters.scene.some(s => {
+        if (s === '工作日晚餐') return r.cook_time <= 30 && r.difficulty !== '困难';
+        if (s === '二人食') return true; // most recipes work for 2
+        if (s === '一人食') return true;
+        if (s === '带饭便当') return tags.includes('下饭菜') || tags.includes('快手菜');
+        if (s === '周末改善') return r.difficulty !== '简单' || (r.cook_time || 20) >= 30;
+        if (s === '招待朋友') return r.difficulty === '中等' || r.difficulty === '困难';
+        if (s === '清冰箱') return ing.length <= 5;
+        return false;
+      });
+    });
+  }
+
+  // Cuisine/taste (multi-select)
+  if (filters.cuisine && filters.cuisine.length > 0) {
+    list = list.filter(r => {
+      const tags = r.tags || [];
+      const cat = r.category || '';
+      return filters.cuisine.some(c =>
+        tags.includes(c) || cat === c
+      );
+    });
+  }
+
+  // User status
+  if (filters.userStatus && filters.userStatus !== 'all') {
+    switch (filters.userStatus) {
+      case 'faved':
+        list = list.filter(r => state.favorites.has(r.id));
+        break;
+      case 'cooked':
+        list = list.filter(r => (state.cookedMap[r.id]?.count || 0) > 0);
+        break;
+      case 'notCooked':
+        list = list.filter(r => (state.cookedMap[r.id]?.count || 0) === 0);
+        break;
+      case 'recent7':
+        const weekAgo = new Date(Date.now() - 7 * 86400000);
+        list = list.filter(r => {
+          const last = state.cookedMap[r.id]?.last;
+          return last && new Date(last) >= weekAgo;
+        });
+        break;
+      case 'longTime':
+        const monthAgo = new Date(Date.now() - 30 * 86400000);
+        list = list.filter(r => {
+          const last = state.cookedMap[r.id]?.last;
+          return last && new Date(last) < monthAgo;
+        });
+        break;
+      case 'master':
+        list = list.filter(r => (state.proficiency[r.id]?.level || '新手') === '大师');
+        break;
+    }
+  }
+
+  // Sort
+  if (filters.sort && filters.sort !== 'default') {
+    switch (filters.sort) {
+      case 'recent':
+        list = list.sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+        break;
+      case 'cooked':
+        list = list.sort((a, b) => new Date(state.cookedMap[b.id]?.last || 0) - new Date(state.cookedMap[a.id]?.last || 0));
+        break;
+      case 'mostCooked':
+        list = list.sort((a, b) => (state.cookedMap[b.id]?.count || 0) - (state.cookedMap[a.id]?.count || 0));
+        break;
+      case 'fastest':
+        list = list.sort((a, b) => (a.cook_time || 30) - (b.cook_time || 30));
+        break;
+      case 'easiest':
+        const diffOrder = { '简单': 0, '中等': 1, '困难': 2 };
+        list = list.sort((a, b) => (diffOrder[a.difficulty] || 1) - (diffOrder[b.difficulty] || 1));
+        break;
+      case 'favedFirst':
+        list = list.sort((a, b) => (state.favorites.has(b.id) ? 1 : 0) - (state.favorites.has(a.id) ? 1 : 0));
+        break;
+    }
+  }
+
+  return list;
+}
+
+function getActiveFilterSummary(filters) {
+  const parts = [];
+  if (filters.difficulty && filters.difficulty !== 'all') parts.push(filters.difficulty);
+  if (filters.time && filters.time !== 'all') {
+    parts.push(filters.time === '15m' ? '15分钟内' : filters.time === '30m' ? '30分钟内' : filters.time === '60m' ? '60分钟内' : '周末菜');
+  }
+  if (filters.type && filters.type.length > 0) parts.push(...filters.type);
+  if (filters.cuisine && filters.cuisine.length > 0) parts.push(...filters.cuisine.slice(0, 2));
+  return parts;
+}
+
+// ── UX Helpers ──
+function getMasteryLabel(recipeId) {
+  const count = (state.cookedMap[recipeId]?.count || 0);
+  if (count >= 6) return { label: '拿手菜', emoji: '⭐', cls: 'mastery-gold' };
+  if (count >= 3) return { label: '逐渐熟练', emoji: '🔥', cls: 'mastery-silver' };
+  if (count >= 1) return { label: '刚开始练', emoji: '🌱', cls: 'mastery-bronze' };
+  return { label: '还没做过', emoji: '📖', cls: 'mastery-new' };
+}
+
+function getRecentCookedRecipes(limit = 3) {
+  const all = [...state.recipes, ...state.customRecipes];
+  return all
+    .filter(r => (state.cookedMap[r.id]?.count || 0) > 0)
+    .sort((a, b) => new Date(state.cookedMap[b.id]?.last || 0) - new Date(state.cookedMap[a.id]?.last || 0))
+    .slice(0, limit);
+}
+
+function getWeeklySuggestions() {
+  const all = [...state.recipes, ...state.customRecipes];
+  if (all.length === 0) return [];
+
+  const suggestions = [];
+
+  // 1 quick dish (<=20 min)
+  const quickOnes = all.filter(r => (r.cook_time || 30) <= 20 && r.difficulty !== '困难');
+  if (quickOnes.length > 0) {
+    suggestions.push({
+      ...quickOnes.sort(() => Math.random() - 0.5)[0],
+      suggestionTag: '快手菜',
+      suggestionReason: '工作日晚餐，20分钟内搞定'
+    });
+  }
+
+  // 1 veggie dish
+  const veggie = all.filter(r => {
+    const tags = (r.tags || []).map(t => t.toLowerCase());
+    const cat = (r.category || '').toLowerCase();
+    return tags.includes('素菜') || cat.includes('素') || cat.includes('蔬');
+  });
+  if (veggie.length > 0) {
+    suggestions.push({
+      ...veggie.sort(() => Math.random() - 0.5)[0],
+      suggestionTag: '蔬菜',
+      suggestionReason: '补充维生素，荤素搭配更健康'
+    });
+  }
+
+  // 1 protein dish
+  const protein = all.filter(r => {
+    const cat = (r.category || '');
+    const tags = (r.tags || []);
+    return cat === '荤菜' || cat === '水产' || tags.includes('荤菜');
+  });
+  if (protein.length > 0) {
+    suggestions.push({
+      ...protein.sort(() => Math.random() - 0.5)[0],
+      suggestionTag: '蛋白质',
+      suggestionReason: '优质蛋白，满足营养需求'
+    });
+  }
+
+  // 1 weekend dish (medium/hard, >30 min)
+  const weekend = all.filter(r => (r.difficulty === '中等' || r.difficulty === '困难') && (r.cook_time || 20) >= 30);
+  if (weekend.length > 0) {
+    suggestions.push({
+      ...weekend.sort(() => Math.random() - 0.5)[0],
+      suggestionTag: '周末菜',
+      suggestionReason: '周末慢慢做，享受烹饪乐趣'
+    });
+  }
+
+  return suggestions;
+}
+
+// ── Cooking Journal Delete ──
+async function deleteJournalEntry(journalId) {
+  if (!confirm('确定删除这条打卡记录吗？删除后不可恢复。')) return;
+  await deleteCookingJournal(journalId);
+  // Re-show detail if we're on a detail page
+  if (state.currentDetailId) {
+    const r = getRecipeById(state.currentDetailId);
+    if (r) showDetail(state.currentDetailId, r.isApi || false);
+  }
+}
+
+// ── Shopping List: Clear Checked ──
+async function doClearCheckedShop() {
+  await clearCheckedShopItems();
+  if (state.currentView === 'shop') render();
+}
+
+// ── Quick Scenario Filter ──
+function applyQuickScenarioFilter(scene) {
+  state.recipeFilters.quick = scene;
+  state.currentView = 'recipes';
+  state.currentFilter = scene;
+  state.searchKeyword = '';
+  render();
 }
 
 // ── Favorites ──
@@ -1036,8 +1444,10 @@ const App = {
   incrementCooked: doIncrementCooked, decreaseCooked: doDecreaseCooked,
   // Shopping
   shopClick, toggleShop, removeShop, clearShop,
+  doClearCheckedShop,
   // API Search
   apiSearch, showApiDetail,
+  handleSearchInput, clearSearch,
   // AI Save
   aiSaveRecipe,
   saveApiRecipeToMyRecipes,
@@ -1046,10 +1456,20 @@ const App = {
   testAI: doTestAI,
   toggleEnglishFallback,
   // Today's Eat
-  showTodayEat, doTodayRecommend, showTodayDetail, toggleTodayTag, updateTodayOptions
+  showTodayEat, doTodayRecommend, showTodayDetail, toggleTodayTag, updateTodayOptions,
+  // Filter Panel
+  openRecipeFilterPanel, closeRecipeFilterPanel, setRecipeFilter, resetRecipeFilters,
+  applyQuickScenarioFilter,
+  // Journal
+  deleteJournalEntry,
+  // UX Helpers
+  getMasteryLabel, getRecentCookedRecipes, getWeeklySuggestions
 };
 
 window.App = App;
+// Expose filter functions for recipesView.js to use without circular imports
+App._applyFilters = applyRecipeFilters;
+App._getActiveFilterSummary = getActiveFilterSummary;
 
 // ── Initialize ──
 async function init() {

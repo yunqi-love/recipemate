@@ -64,3 +64,30 @@ export async function decreaseCooked(rid) {
 export function getJournalForRecipe(rid) {
   return state.journals.filter(j => j.recipe_id === rid);
 }
+
+export async function deleteCookingJournal(journalId) {
+  const journal = state.journals.find(j => j.id === journalId);
+  if (!journal) return;
+
+  // Security: only delete own records
+  if (journal.user_id !== state.session?.user?.id) {
+    toast('❌ 不能删除他人的打卡记录');
+    return;
+  }
+
+  // Delete from Supabase
+  const { error } = await supabase.from('cooking_journal')
+    .delete()
+    .eq('id', journalId)
+    .eq('user_id', state.session.user.id);
+
+  if (error) {
+    toast('❌ 删除失败，请稍后重试');
+    console.error('Journal delete error:', error);
+    return;
+  }
+
+  // Remove from local state
+  state.journals = state.journals.filter(j => j.id !== journalId);
+  toast('🗑 已删除打卡记录');
+}

@@ -36,7 +36,25 @@ export const state = {
   debugSearchSource: null,
   debugSearchCount: 0,
   debugDetailHasIngredients: null,
-  debugLocalRecipeCount: null
+  debugLocalRecipeCount: null,
+  // Search input (decoupled from DOM)
+  searchKeyword: '',
+  searchDebounceTimer: null,
+  searchInputFocused: false,
+  searchInputSelStart: 0,
+  searchInputSelEnd: 0,
+  // Recipe filter state (multi-dimension)
+  recipeFilters: {
+    quick: 'all',
+    difficulty: 'all',
+    time: 'all',
+    type: [],
+    scene: [],
+    cuisine: [],
+    userStatus: 'all',
+    sort: 'default'
+  },
+  showFilterPanel: false
 };
 
 export function getProficiency(count) {

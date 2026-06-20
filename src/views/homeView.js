@@ -1,4 +1,4 @@
-// RecipeMate — Home View (with "Today's Eat" feature)
+// RecipeMate — Home View (with "Today's Eat" feature + user persona UX)
 import { state } from '../app.js';
 import { renderCard } from '../components/recipeCard.js';
 
@@ -11,6 +11,15 @@ export function renderHome() {
     .sort((a, b) => (state.cookedMap[b.id]?.count || 0) - (state.cookedMap[a.id]?.count || 0))
     .slice(0, 5);
   if (featured.length === 0) featured.push(...all.slice(0, 3));
+
+  // Recent cooked recipes (for quick re-access)
+  const recentCooked = all
+    .filter(r => (state.cookedMap[r.id]?.count || 0) > 0)
+    .sort((a, b) => new Date(state.cookedMap[b.id]?.last || 0) - new Date(state.cookedMap[a.id]?.last || 0))
+    .slice(0, 3);
+
+  // Weekly suggestions
+  const suggestions = getWeeklySuggestionsLocal();
 
   // Random seasonal picks
   const seasonal = all
@@ -33,34 +42,184 @@ export function renderHome() {
         style="margin-top:12px;color:#fff;border-color:rgba(255,255,255,.5);flex:none"
         onclick="App.showTodayEat()">🎲 今天吃什么</button>
     </div>
+
+    <!-- Quick scenario cards -->
+    <div style="padding:12px 16px 0">
+      <div class="section-title">🍽️ 快速入口</div>
+      <div class="scenario-grid">
+        <div class="scenario-card" onclick="App.applyQuickScenarioFilter('quick')">
+          <span class="scenario-emoji">⚡</span>
+          <span class="scenario-label">工作日晚餐</span>
+          <span class="scenario-desc">30分钟</span>
+        </div>
+        <div class="scenario-card" onclick="App.applyQuickScenarioFilter('duo')">
+          <span class="scenario-emoji">👫</span>
+          <span class="scenario-label">二人食</span>
+          <span class="scenario-desc">适合约会</span>
+        </div>
+        <div class="scenario-card" onclick="App.showTodayEat()">
+          <span class="scenario-emoji">🍚</span>
+          <span class="scenario-label">下饭菜</span>
+          <span class="scenario-desc">超下饭</span>
+        </div>
+      </div>
+    </div>
+
     ${featured.length > 0 ? `
     <div style="padding:12px 16px 0">
-      <div class="section-title" style="margin-top:0">🌟 你常做的</div>
+      <div class="section-title">🌟 你常做的</div>
       <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch">
         ${featured.map(r => `
           <div class="recipe-card" style="min-width:200px;max-width:200px;flex-shrink:0" onclick="App.showDetail('${r.id}',false)">
             ${r.image_url ? `<img class="card-img" src="${r.image_url}" alt="${esc(r.title)}" loading="lazy" style="height:120px">` : ''}
             <div class="card-body">
               <div class="card-title" style="font-size:15px">${esc(r.title)}</div>
-              <div class="card-meta"><span style="font-size:11px;color:#999">👨‍🍳 ${state.cookedMap[r.id]?.count || 0}次</span></div>
+              <div class="card-meta"><span style="font-size:11px;color:#999">👨‍🍳 ${state.cookedMap[r.id]?.count || 0}次 · ${getMasteryEmoji(r.id)}</span></div>
             </div>
           </div>`).join('')}
       </div>
     </div>` : ''}
+
+    ${recentCooked.length > 0 ? `
+    <div style="padding:8px 16px 0">
+      <div class="section-title">🕐 最近做过</div>
+      <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;-webkit-overflow-scrolling:touch">
+        ${recentCooked.map(r => `
+          <div class="recipe-card" style="min-width:160px;max-width:160px;flex-shrink:0" onclick="App.showDetail('${r.id}',false)">
+            ${r.image_url ? `<img class="card-img" src="${r.image_url}" alt="${esc(r.title)}" loading="lazy" style="height:100px">` : ''}
+            <div class="card-body">
+              <div class="card-title" style="font-size:13px">${esc(r.title)}</div>
+              <div class="card-meta"><span style="font-size:10px;color:#999">${formatLastCooked(r.id)}</span></div>
+            </div>
+          </div>`).join('')}
+      </div>
+    </div>` : ''}
+
+    ${suggestions.length > 0 ? `
+    <div style="padding:8px 16px 0">
+      <div class="section-title">💡 本周建议</div>
+      ${suggestions.map(s => `
+        <div class="suggestion-row" onclick="App.showDetail('${s.id}',false)">
+          <div class="suggestion-left">
+            <span class="suggestion-emoji">${s.suggestionEmoji || '🍽️'}</span>
+            <div>
+              <div class="suggestion-title">${esc(s.title)}</div>
+              <div class="suggestion-reason">${esc(s.suggestionReason || '')}</div>
+            </div>
+          </div>
+          <span class="suggestion-tag">${esc(s.suggestionTag || '')}</span>
+        </div>
+      `).join('')}
+    </div>` : ''}
+
     ${seasonal.length > 0 ? `
     <div style="padding:8px 16px 0">
       <div class="section-title">🌸 换个口味试试</div>
       ${seasonal.map(r => renderCard(r)).join('')}
     </div>` : ''}
+
     ${recent.length > 0 ? `
     <div style="padding:8px 16px 0">
       <div class="section-title">🆕 最近自建</div>
       ${recent.map(r => renderCard(r)).join('')}
     </div>` : ''}
+
     <div style="text-align:center;padding:10px;margin-bottom:80px">
       <button class="btn btn-outline btn-sm" onclick="App.navTo('recipes')" style="flex:none;padding:10px 30px">📖 浏览全部菜谱</button>
     </div>
     ${renderNav('home')}`;
+}
+
+function getWeeklySuggestionsLocal() {
+  const all = [...state.recipes, ...state.customRecipes];
+  if (all.length === 0) return [];
+
+  const suggestions = [];
+  const used = new Set();
+
+  // 1 quick dish (<=20 min)
+  const quickOnes = all.filter(r => (r.cook_time || 30) <= 20 && r.difficulty !== '困难');
+  if (quickOnes.length > 0) {
+    const pick = quickOnes.sort(() => Math.random() - 0.5)[0];
+    used.add(pick.id);
+    suggestions.push({
+      ...pick,
+      suggestionEmoji: '⚡',
+      suggestionTag: '快手菜',
+      suggestionReason: '工作日晚餐，20分钟内搞定'
+    });
+  }
+
+  // 1 veggie dish
+  const veggie = all.filter(r => {
+    if (used.has(r.id)) return false;
+    const tags = (r.tags || []).map(t => t.toLowerCase());
+    const cat = (r.category || '').toLowerCase();
+    return tags.includes('素菜') || cat.includes('素') || cat.includes('蔬');
+  });
+  if (veggie.length > 0) {
+    const pick = veggie.sort(() => Math.random() - 0.5)[0];
+    used.add(pick.id);
+    suggestions.push({
+      ...pick,
+      suggestionEmoji: '🥬',
+      suggestionTag: '蔬菜',
+      suggestionReason: '补充维生素，荤素搭配更健康'
+    });
+  }
+
+  // 1 protein dish
+  const protein = all.filter(r => {
+    if (used.has(r.id)) return false;
+    const cat = (r.category || '');
+    const tags = (r.tags || []);
+    return cat === '荤菜' || cat === '水产' || tags.includes('荤菜');
+  });
+  if (protein.length > 0) {
+    const pick = protein.sort(() => Math.random() - 0.5)[0];
+    used.add(pick.id);
+    suggestions.push({
+      ...pick,
+      suggestionEmoji: '🍖',
+      suggestionTag: '蛋白质',
+      suggestionReason: '优质蛋白，满足营养需求'
+    });
+  }
+
+  // 1 weekend dish
+  const weekend = all.filter(r => {
+    if (used.has(r.id)) return false;
+    return (r.difficulty === '中等' || r.difficulty === '困难') && (r.cook_time || 20) >= 30;
+  });
+  if (weekend.length > 0) {
+    const pick = weekend.sort(() => Math.random() - 0.5)[0];
+    suggestions.push({
+      ...pick,
+      suggestionEmoji: '🍳',
+      suggestionTag: '周末菜',
+      suggestionReason: '周末慢慢做，享受烹饪乐趣'
+    });
+  }
+
+  return suggestions;
+}
+
+function getMasteryEmoji(rid) {
+  const count = (state.cookedMap[rid]?.count || 0);
+  if (count >= 6) return '⭐拿手菜';
+  if (count >= 3) return '🔥熟练';
+  if (count >= 1) return '🌱初学';
+  return '';
+}
+
+function formatLastCooked(rid) {
+  const last = state.cookedMap[rid]?.last;
+  if (!last) return '';
+  const days = Math.floor((Date.now() - new Date(last).getTime()) / 86400000);
+  if (days === 0) return '今天做过';
+  if (days === 1) return '昨天做过';
+  if (days <= 7) return `${days}天前`;
+  return new Date(last).toLocaleDateString();
 }
 
 export function renderNav(current) {
@@ -72,12 +231,7 @@ export function renderNav(current) {
   </div>`;
 }
 
-/**
- * Render the "Today's Eat" modal with conditions.
- * Uses state.todayOptions for persistence.
- */
 export function renderTodayEatModal() {
-  // Initialize todayOptions if needed
   if (!state.todayOptions) {
     state.todayOptions = { types: [], servings: '2', avoid: '' };
   }
