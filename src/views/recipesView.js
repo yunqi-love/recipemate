@@ -51,9 +51,13 @@ export function renderRecipes() {
     </div>
     <div class="search-row">
       <span class="sicon">🔍</span>
-      <input id="searchInput" placeholder="搜索菜名、食材、标签..." value="${escapeHtml(kw)}"
-        oninput="App.handleSearchInput(this.value)"
-        onkeydown="if(event.key==='Enter')App.handleSearchSubmit(event)">
+      <input id="searchInput" type="search" placeholder="搜索菜名、食材、标签..." value="${escapeHtml(kw)}"
+        autocomplete="off" enterkeyhint="search"
+        oncompositionstart="App.handleSearchCompositionStart(event)"
+        oncompositionupdate="App.handleSearchCompositionUpdate(event)"
+        oncompositionend="App.handleSearchCompositionEnd(event)"
+        oninput="App.handleSearchInputEvent(event)"
+        onkeydown="App.handleSearchKeydown(event)">
       ${kw ? `<span class="sclear" onclick="App.clearSearch()">✕</span>`
         : `<span class="sicon" style="left:auto;right:32px;cursor:pointer" onclick="App.handleSearchSubmit()">🔍</span>`}
     </div>
@@ -75,8 +79,8 @@ export function renderRecipes() {
       <span class="filter-summary-text">已筛选：${activeCount.join(' · ')}</span>
       <span class="filter-summary-reset" onclick="App.resetRecipeFilters()">重置</span>
     </div>` : ''}
-    <!-- Search suggestions when no keyword -->
-    ${!kw && searchHistory.length > 0 ? `
+    <div class="content" id="recipe-results">
+      ${!kw && searchHistory.length > 0 ? `
     <div style="padding:8px 16px 0">
       <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;display:flex;justify-content:space-between">
         <span>🕐 最近搜索</span>
@@ -86,12 +90,9 @@ export function renderRecipes() {
         ${searchHistory.map(t => `<span class="filter-chip" onclick="App.performUnifiedSearch('${escapeHtml(t)}')">${escapeHtml(t)}</span>`).join('')}
       </div>
     </div>` : ''}
-    <div class="content">
-      <div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${label} · ${list.length} 道</div>
       ${list.length === 0
         ? renderEmptyState(kw, activeCount)
-        : list.map(r => renderCard(r)).join('')
-      }
+        : renderResultsBody(label, list)}
     </div>
     ${renderBottomNav(state.currentView === 'favorites' ? 'favorites' : 'recipes')}`;
 }
@@ -99,6 +100,11 @@ export function renderRecipes() {
 function renderQuickFilterChip(label, key) {
   const active = (state.recipeFilters?.quick || state.currentFilter) === key;
   return `<span class="filter-chip${active ? ' active' : ''}" onclick="App.setFilter('${key}')">${label}</span>`;
+}
+
+function renderResultsBody(label, list) {
+  return `<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${label} · ${list.length} 道</div>
+      ${list.map(r => renderCard(r)).join('')}`;
 }
 
 function getRecentSuggestions() {

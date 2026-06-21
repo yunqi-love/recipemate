@@ -30,6 +30,7 @@ import { renderAuth } from './views/authView.js';
 import { renderHome, renderTodayEatModal } from './views/homeView.js';
 import { renderBottomNav } from './components/bottomNav.js';
 import { renderRecipes } from './views/recipesView.js';
+import { renderCard, escapeHtml } from './components/recipeCard.js';
 import { showDetail, renderCookModal } from './views/detailView.js';
 import { renderShop } from './views/shopView.js';
 import { showSettings, updateSetForm, doTestAI } from './views/settingsView.js';
@@ -87,8 +88,10 @@ function render() {
 
   // Recipes / Favorites view
   app.innerHTML = renderRecipes();
-  // Restore search input state after DOM replacement
-  requestAnimationFrame(() => restoreSearchFocusIfNeeded());
+  // Only attempt to restore focus if safe
+  if (!state.isComposing) {
+    requestAnimationFrame(() => restoreSearchFocusIfNeeded());
+  }
 }
 
 // ── Navigation ──
@@ -114,44 +117,276 @@ function setFilter(key) {
   render();
 }
 
-// ── Search Input Handler (debounced, won't dismiss keyboard) ──
-function handleSearchInput(value) {
-  state.searchKeyword = value || '';
-  const si = document.getElementById('searchInput');
-  if (si) {
-    state.searchInputFocused = document.activeElement === si;
-    state.searchInputSelStart = si.selectionStart || 0;
-    state.searchInputSelEnd = si.selectionEnd || 0;
+// ── IME Composition Handlers ──
+// During composition (IME active), we MUST NOT:
+//  - call global render()
+//  - replace DOM containing searchInput
+//  - blur/focus searchInput
+//  - overwrite input.value
+//  - submit search
+// The browser MUST manage the input value during IME composition.
+
+function handleSearchCompositionStart(event) {
+  state.isComposing = true;
+  state.searchDraftValue = event.target.value || '';
+}
+
+function handleSearchCompositionUpdate(event) {
+  state.isComposing = true;
+  state.searchDraftValue = event.target.value || '';
+  // DO NOT search, render, blur, or focus during IME composition
+}
+
+function handleSearchCompositionEnd(event) {
+  state.isComposing = false;
+  state.searchKeyword = event.target.value || '';
+  state.searchDraftValue = state.searchKeyword;
+  scheduleSearchAfterInput(state.searchKeyword);
+}
+
+// ── General input event (firefox, some mobile browsers use different event order) ──
+function handleSearchInputEvent(event) {
+  const value = event.target.value || '';
+
+  // If IME is composing, the browser handles the input value — don't interfere
+  if (event.isComposing || state.isComposing) {
+    state.searchDraftValue = value;
+    return;
   }
-  // Mark that we SHOULD restore focus after the upcoming debounced render —
-  // but ONLY because the user is actively typing
-  state.shouldRestoreSearchFocus = true;
-  state.searchFocusReason = 'typing';
+
+  state.searchKeyword = value;
+  state.searchDraftValue = value;
+  scheduleSearchAfterInput(value);
+}
+
+// ── Debounced search that does NOT call global render() ──
+function scheduleSearchAfterInput(keyword) {
   clearTimeout(state.searchDebounceTimer);
   state.searchDebounceTimer = setTimeout(() => {
-    renderSearchResults();
+    // Safety: never render during composition
+    if (state.isComposing) return;
+    performSearchTyping(keyword);
   }, 300);
 }
 
-function clearSearch() {
-  state.searchKeyword = '';
-  const si = document.getElementById('searchInput');
-  if (si) si.value = '';
-  // Keep focus if user is on recipes/favorites — they're still interacting
-  state.shouldRestoreSearchFocus = true;
-  state.searchFocusReason = 'clear';
-  render();
-  setTimeout(() => {
-    const si2 = document.getElementById('searchInput');
-    if (si2 && (state.currentView === 'recipes' || state.currentView === 'favorites')) {
-      si2.focus({ preventScroll: true });
+// ── Typing-mode search: only updates results list, keeps searchInput intact ──
+function performSearchTyping(keyword) {
+  if (state.currentView !== 'recipes' && state.currentView !== 'favorites') return;
+  if (state.isComposing) return;
+
+  const kw = (keyword || '').trim();
+  state.searchKeyword = kw;
+
+  // Compute filtered list
+  const allRecipes = [...state.recipes, ...state.customRecipes];
+  let list;
+  if (state.currentView === 'favorites') {
+    list = allRecipes.filter(r => state.favorites.has(r.id));
+  } else {
+    list = allRecipes;
+  }
+
+  if (kw) {
+    list = list.filter(r =>
+      r.title.toLowerCase().includes(kw.toLowerCase()) ||
+      (r.tags || []).some(t => t.toLowerCase().includes(kw.toLowerCase())) ||
+      (r.ingredients || []).some(i =>
+        (typeof i === 'string' ? i : (i.name || '')).toLowerCase().includes(kw.toLowerCase())
+      )
+    );
+  }
+
+  if (state.recipeFilters && window.App?._applyFilters) {
+    list = window.App._applyFilters(list, state.recipeFilters);
+  }
+
+  // Store results
+  state._typedResults = list;
+  state._typedResultKeyword = kw;
+
+  // Local DOM update — only the results container, NOT the search input
+  renderSearchResultsOnly(list, kw);
+}
+
+// ── Local-only render: updates #recipe-results without touching searchInput ──
+function renderSearchResultsOnly(list, kw) {
+  const container = document.getElementById('recipe-results');
+  if (!container) {
+    // No container yet — this is the first typing render after a prior full render.
+    // We need to do a full render to create the container structure, but ONLY
+    // if we are NOT in IME composition mode.
+    if (state.isComposing) return;
+    // Full render with search state preserved, then re-find the container
+    _renderRecipesPagePreservingSearchInput();
+    const newContainer = document.getElementById('recipe-results');
+    if (newContainer) {
+      newContainer.innerHTML = _buildRecipeResultsHTML(list, kw);
     }
-  }, 50);
+    return;
+  }
+
+  // Update only the results container — searchInput DOM is untouched
+  container.innerHTML = _buildRecipeResultsHTML(list, kw);
+}
+
+function _buildRecipeResultsHTML(list, kw) {
+  const label = state.currentView === 'favorites' ? '❤️ 收藏' : '📖 我的菜谱';
+  const activeCount = getActiveFilterSummaryDisplay();
+  const searchHistory = !kw ? getRecentSuggestionsForUI() : [];
+
+  let html = '';
+
+  // Search suggestions when no keyword (disappears once user starts typing)
+  if (!kw && searchHistory.length > 0) {
+    html += `<div style="padding:8px 16px 0">
+      <div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;display:flex;justify-content:space-between">
+        <span>🕐 最近搜索</span>
+        <span style="cursor:pointer;color:var(--primary)" onclick="App.clearSearchHistory()">清空</span>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${searchHistory.map(t => `<span class="filter-chip" onclick="App.performUnifiedSearch('${esc(t)}')">${esc(t)}</span>`).join('')}
+      </div>
+    </div>`;
+  }
+
+  html += `<div style="font-size:13px;color:var(--text-muted);margin-bottom:10px">${label} · ${list.length} 道</div>`;
+
+  if (list.length === 0) {
+    html += _buildEmptyStateHTML(kw, activeCount);
+  } else {
+    html += list.map(r => renderCard(r)).join('');
+  }
+
+  return html;
+}
+
+function _buildEmptyStateHTML(kw, activeCount) {
+  if (activeCount.length > 0) {
+    return `<div class="empty-state">
+      <div class="empty-state-icon">🔍</div>
+      <div class="empty-state-title">没有找到符合条件的菜</div>
+      <div class="empty-state-desc">试试减少筛选条件</div>
+      <button class="btn btn-outline btn-sm" onclick="App.resetRecipeFilters()" style="margin-top:12px">🔄 重置筛选</button>
+    </div>`;
+  }
+  if (kw) {
+    return `<div class="empty-state">
+      <div class="empty-state-icon">🔍</div>
+      <div class="empty-state-title">本地菜谱中没有"${esc(kw)}"</div>
+      <div class="empty-state-desc">试试完整搜索或热门词：</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:8px">
+        ${['鸡蛋','土豆','番茄','豆腐','快手菜','下饭菜'].map(t =>
+          `<span class="filter-chip" onclick="App.performUnifiedSearch('${t}')">${t}</span>`
+        ).join('')}
+      </div>
+    </div>`;
+  }
+  if (state.currentView === 'favorites') {
+    return `<div class="empty-state">
+      <div class="empty-state-icon">❤️</div>
+      <div class="empty-state-title">还没有收藏任何菜谱</div>
+      <div class="empty-state-desc">先去搜索一道想学的菜吧</div>
+      <button class="btn btn-outline btn-sm" onclick="App.navTo('recipes')" style="margin-top:12px">📖 浏览菜谱</button>
+    </div>`;
+  }
+  return `<div class="empty-state">
+    <div class="empty-state-icon">📖</div>
+    <div class="empty-state-title">还没有菜谱</div>
+    <div class="empty-state-desc">创建你的第一道菜谱吧</div>
+  </div>`;
+}
+
+function getRecentSuggestionsForUI() {
+  try { return JSON.parse(localStorage.getItem('rm_search_history') || '[]').slice(0, 6); } catch (e) { return []; }
+}
+
+function getActiveFilterSummaryDisplay() {
+  const f = state.recipeFilters;
+  if (!f) return [];
+  const parts = [];
+  if (f.quick && f.quick !== 'all') {
+    const labels = { faved: '已收藏', recent: '最近做过', quick: '快速晚餐', duo: '二人食', weekend: '周末尝鲜' };
+    parts.push(labels[f.quick] || f.quick);
+  }
+  if (f.difficulty && f.difficulty !== 'all') parts.push(f.difficulty);
+  if (f.time && f.time !== 'all') {
+    parts.push(f.time === '15m' ? '15分钟内' : f.time === '30m' ? '30分钟内' : f.time === '60m' ? '60分钟内' : '周末慢慢做');
+  }
+  if (f.type && f.type.length > 0) parts.push(f.type[0] + (f.type.length > 1 ? ` +${f.type.length - 1}` : ''));
+  if (f.cuisine && f.cuisine.length > 0) parts.push(f.cuisine[0] + (f.cuisine.length > 1 ? ` +${f.cuisine.length - 1}` : ''));
+  return parts;
+}
+
+// Full render for recipes/favorites page that preserves the search input value.
+// Only called when the results container doesn't exist yet (first typing render).
+// NEVER called during IME composition.
+function _renderRecipesPagePreservingSearchInput() {
+  if (state.isComposing) return;
+  const si = document.getElementById('searchInput');
+  const currentValue = si ? si.value : (state.searchKeyword || '');
+  const wasFocused = si ? document.activeElement === si : false;
+
+  // Do full render
+  const app = document.getElementById('app');
+  if (!app) return;
+  app.innerHTML = renderRecipes();
+
+  // Restore the search input value from the actual DOM value (not the stale state)
+  const si2 = document.getElementById('searchInput');
+  if (si2 && currentValue) {
+    si2.value = currentValue;
+    state.searchKeyword = currentValue;
+    state.searchDraftValue = currentValue;
+  }
+  if (wasFocused && si2 && !state.isComposing) {
+    try { si2.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+  }
+}
+
+// ── Keydown handler with IME guard ──
+function handleSearchKeydown(event) {
+  // During IME composition: ignore Enter (keyCode 229 is IME-in-progress marker)
+  if (event.isComposing || state.isComposing || event.keyCode === 229) {
+    return;
+  }
+
+  if (event.key === 'Enter') {
+    handleSearchSubmit(event);
+  }
+}
+
+function clearSearch() {
+  if (state.isComposing) return;
+
+  state.searchKeyword = '';
+  state.searchDraftValue = '';
+  const si = document.getElementById('searchInput');
+  if (si) {
+    si.value = '';
+    // Don't blur — user is still interacting
+  }
+  // Update results locally without destroying search input
+  performSearchTyping('');
+}
+
+// Legacy handler for oninput attribute on searchInput
+function handleSearchInput(value) {
+  // This is the old handler kept for backward compat.
+  // The new IME-safe handlers are bound via oncompositionstart etc.
+  // When called, forward to the event-based handler.
+  state.searchKeyword = value || '';
+  state.searchDraftValue = value || '';
+  scheduleSearchAfterInput(value);
 }
 
 function renderSearchResults() {
   if (state.currentView !== 'recipes' && state.currentView !== 'favorites') return;
-  render();
+  if (state.isComposing) return;
+  // Use full render if the results container doesn't exist
+  renderSearchResultsOnly(
+    state._typedResults || [],
+    state._typedResultKeyword || state.searchKeyword || ''
+  );
 }
 
 // Clear focus state — call on navigation, search submit, goBack
@@ -163,12 +398,12 @@ function clearSearchFocusState() {
   state.searchInputFocused = false;
 }
 
-// Restore focus ONLY when user was actively typing and DOM was replaced by render
+// Restore focus ONLY when user was actively typing and DOM was replaced by render.
+// IMPORTANT: never restore during IME composition.
 function restoreSearchFocusIfNeeded() {
+  if (state.isComposing) return;
   if (!state.shouldRestoreSearchFocus) return;
-  // Only restore if reason is typing — never for navigation or search submit
   if (state.searchFocusReason !== 'typing' && state.searchFocusReason !== 'clear') return;
-  // Only restore on recipes or favorites views
   if (state.currentView !== 'recipes' && state.currentView !== 'favorites') return;
 
   const si = document.getElementById('searchInput');
@@ -1090,11 +1325,24 @@ function exitSearchMode() {
 }
 
 // Search submit handler (Enter key / search icon click)
+// Only called when user explicitly submits, not during IME composition.
 function handleSearchSubmit(event) {
   if (event) event.preventDefault();
-  clearSearchFocusState();
-  const kw = document.getElementById('searchInput')?.value?.trim() || state.searchKeyword || '';
+
+  // Guard: never submit during IME composition
+  if (state.isComposing || (event && event.isComposing) || (event && event.keyCode === 229)) {
+    return;
+  }
+
+  const input = document.getElementById('searchInput');
+  const kw = (input?.value || state.searchKeyword || '').trim();
   if (!kw) return;
+
+  state.searchKeyword = kw;
+  state.searchDraftValue = kw;
+
+  // Clear focus state and blur — only on explicit submit
+  clearSearchFocusState();
   state.currentView = 'search';
   performUnifiedSearch(kw);
 }
@@ -1907,6 +2155,9 @@ const App = {
   // API Search
   apiSearch, showApiDetail,
   handleSearchInput, clearSearch,
+  // IME Composition handlers
+  handleSearchCompositionStart, handleSearchCompositionUpdate, handleSearchCompositionEnd,
+  handleSearchInputEvent, handleSearchKeydown,
   // AI Save
   aiSaveRecipe,
   saveApiRecipeToMyRecipes,

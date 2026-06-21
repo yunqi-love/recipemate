@@ -45,6 +45,9 @@ export const state = {
   searchInputSelEnd: 0,
   shouldRestoreSearchFocus: false,
   searchFocusReason: null,
+  // IME composition state
+  isComposing: false,
+  searchDraftValue: '',
   // Recipe filter state (multi-dimension)
   recipeFilters: {
     quick: 'all',
