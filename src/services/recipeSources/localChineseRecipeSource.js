@@ -71,8 +71,11 @@ export async function searchLocalChineseRecipes(kw) {
   if (!q) return recipes.slice(0, 20); // Return first 20 if no keyword
 
   const results = recipes.filter(r => {
-    // Search by title
+    // Search by title (primary)
     if (r.title.toLowerCase().includes(q)) return true;
+
+    // Search by aliases (e.g., 西红柿炒蛋 aliases for 番茄炒蛋)
+    if ((r.aliases || []).some(a => a.toLowerCase().includes(q))) return true;
 
     // Search by category
     if ((r.category || '').toLowerCase().includes(q)) return true;
@@ -80,14 +83,23 @@ export async function searchLocalChineseRecipes(kw) {
     // Search by tags
     if ((r.tags || []).some(t => t.toLowerCase().includes(q))) return true;
 
-    // Search by ingredients
+    // Search by ingredients (name and amount)
     if ((r.ingredients || []).some(i =>
-      (i.name || '').toLowerCase().includes(q)
+      (i.name || '').toLowerCase().includes(q) ||
+      (i.amount || '').toLowerCase().includes(q)
     )) return true;
 
     // Search by steps text
     if ((r.steps || []).some(s =>
       (s.text || s.detail || '').toLowerCase().includes(q)
+    )) return true;
+
+    // Search by description
+    if ((r.description || '').toLowerCase().includes(q)) return true;
+
+    // Search by sources attribution
+    if ((r.sources || [r.source]).some(s =>
+      s.toLowerCase().includes(q)
     )) return true;
 
     return false;

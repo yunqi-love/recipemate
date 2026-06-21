@@ -1,0 +1,88 @@
+{
+  "generated_at": "2026-06-21T10:51:06.211Z",
+  "total_raw": 342,
+  "total_after_dedupe": 337,
+  "sources": {
+    "projkitchen": {
+      "name": "Proj Kitchen",
+      "raw": 342,
+      "imported": 342,
+      "skipped": 0,
+      "error": null
+    },
+    "howtocook": {
+      "name": "HowToCook (Anduin2017)",
+      "raw": 0,
+      "imported": 0,
+      "skipped": 0,
+      "error": "Repo not found locally"
+    },
+    "yunyoujun_cook": {
+      "name": "YunYouJun/cook",
+      "raw": 0,
+      "imported": 0,
+      "skipped": 0,
+      "error": "fetch failed"
+    }
+  },
+  "duplicates_removed": 6,
+  "recipes_missing_ingredients": 0,
+  "recipes_missing_steps": 0,
+  "recipes_missing_title": 0,
+  "quality_distribution": {
+    "excellent": 337,
+    "good": 0,
+    "fair": 0,
+    "poor": 0
+  },
+  "categories": [
+    {
+      "category": "荤菜",
+      "count": 97
+    },
+    {
+      "category": "主食",
+      "count": 57
+    },
+    {
+      "category": "素菜",
+      "count": 56
+    },
+    {
+      "category": "水产",
+      "count": 27
+    },
+    {
+      "category": "早餐",
+      "count": 24
+    },
+    {
+      "category": "饮品",
+      "count": 18
+    },
+    {
+      "category": "汤与粥",
+      "count": 18
+    },
+    {
+      "category": "甜品",
+      "count": 18
+    },
+    {
+      "category": "半成品加工",
+      "count": 9
+    },
+    {
+      "category": "调味品",
+      "count": 8
+    },
+    {
+      "category": "家常菜",
+      "count": 3
+    },
+    {
+      "category": "川菜",
+      "count": 2
+    }
+  ]
+}

@@ -231,22 +231,63 @@ AI 输出格式：
 5. 前端根据 ID 找回完整菜谱展示
 6. 如果 AI 失败，自动 fallback 到本地随机推荐
 
-## 数据来源与致谢
+## 菜谱数据来源
 
-### 本地中文菜谱库
+本地中文菜谱库 (`public/data/chinese-recipes.json`) 由多个开源/公开来源整理生成。
 
-- 数据来源：[Proj Kitchen](https://proj.kitchen) — 开源中文菜谱 API
-- GitHub: [GraceFeng930/ProjKitchen](https://github.com/GraceFeng930/ProjKitchen)
-- 数据量：342 道完整中国菜谱
-- 每道菜包含：菜名、分类、难度、食材列表（含用量）、详细步骤、厨具
-- 导入方式：`scripts/import-recipes.cjs` 通过 API 自动拉取并转换为 RecipeMate 格式
-- #### License: **CC BY-NC-SA** (数据来自 Proj Kitchen 开源项目)
+导入方式：
+```bash
+npm run import:recipes          # 完整导入（含在线API）
+npm run import:recipes:offline  # 仅本地来源
+```
+
+### 来源列表
+
+| 来源 | 描述 | License | 菜谱数（约） |
+|------|------|---------|-------------|
+| [Proj Kitchen](https://github.com/GraceFeng930/ProjKitchen) | 开源中文菜谱 API，每道菜含完整食材和步骤 | CC BY-NC-SA | 342 |
+| [HowToCook (Anduin2017)](https://github.com/Anduin2017/HowToCook) | 程序员做饭指南，社区维护的中文菜谱 | Unlicense | ~193 |
+| [YunYouJun/cook](https://github.com/YunYouJun/cook) | 开源菜谱项目 | MIT | 待定 |
+
+### HowToCook 导入说明
+
+HowToCook 数据以 Markdown 文件形式存储，需要先将仓库克隆到本地：
+
+```bash
+git clone --depth 1 https://github.com/Anduin2017/HowToCook
+node scripts/import-recipes.cjs --howtocook-path ./HowToCook
+```
+
+### 数据清洗
+
+所有来源的数据经过以下处理：
+- 统一格式转换（字段名、结构标准化）
+- 食材名称同义词归一化（如：西红柿→番茄）
+- 标题清理（去掉"的做法"等后缀）
+- 自动推断难度、烹饪时间、标签
+- 跨来源去重合并（相似菜谱保留质量最高的版本）
+
+### 参考来源（未直接导入）
+
+以下来源作为参考，因数据格式或 License 限制未直接导入：
+
+- [whatToEat (ryanuo)](https://github.com/ryanuo/whatToEat) — 菜谱推荐工具
+- [Ta-da Recipe Dataset](https://github.com/Eimo-Bai/Ta-da-recipe-dataset) — 菜谱数据集 demo
+- [chef_new (ylx911229)](https://github.com/ylx911229/chef_new) — 菜谱数据项目
 
 ### TheMealDB
 
 - [TheMealDB](https://www.themealdb.com) — 英文菜谱数据库
 - 默认关闭，需在设置中手动启用
 - 仅在中文菜谱搜索无结果时作为兜底
+
+### License 说明
+
+- 代码: MIT
+- Proj Kitchen 数据: CC BY-NC-SA
+- HowToCook 数据: Unlicense (public domain)
+- YunYouJun/cook 数据: MIT
+- 用户自建菜谱：用户自有
 
 ## 技术栈
 

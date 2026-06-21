@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "serve": "python3 -m http.server 8080"
+    "serve": "python3 -m http.server 8080",
+    "import:recipes": "node scripts/import-recipes.cjs",
+    "import:recipes:offline": "node scripts/import-recipes.cjs --skip-online"
   },
   "devDependencies": {
     "vite": "^5.4.0"
